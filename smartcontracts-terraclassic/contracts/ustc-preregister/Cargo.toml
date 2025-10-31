@@ -1,0 +1,37 @@
+[package]
+name = "ustc-preregister"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+library = []
+cosmwasm_1_2 = ["cosmwasm-std/cosmwasm_1_2"]
+
+[dependencies]
+cosmwasm-schema = "1.5.9"
+cw2 = "1.1.2"
+cw20 = "1.1.2"
+cw-storage-plus = "1.2.0"
+cosmwasm-std = { version = "1.5.11", features = ["staking"] }
+schemars = "0.8.15"
+serde = { version = "1.0.188", default-features = false, features = ["derive"] }
+thiserror = "1.0.4"
+base64ct = "1.7.3"
+
+[dev-dependencies]
+cw-multi-test = "1.0.0"
+cosmwasm-std = { version = "1.5.11", features = ["staking"] }
+
+[[example]]
+name = "schema"
+path = "examples/schema.rs"
+
+[profile.release]
+opt-level = 3
+debug = false
+overflow-checks = true
+lto = true
+codegen-units = 1

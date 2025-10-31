@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ValidateIndexResponse",
+  "type": "object",
+  "required": [
+    "is_consistent",
+    "issues",
+    "total_users_in_index",
+    "user_count_actual",
+    "user_count_stored"
+  ],
+  "properties": {
+    "is_consistent": {
+      "type": "boolean"
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "total_users_in_index": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    },
+    "user_count_actual": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    },
+    "user_count_stored": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  },
+  "additionalProperties": false
+}

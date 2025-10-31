@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QueryMsg",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "get_user_deposit"
+      ],
+      "properties": {
+        "get_user_deposit": {
+          "type": "object",
+          "required": [
+            "user"
+          ],
+          "properties": {
+            "user": {
+              "$ref": "#/definitions/Addr"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Get all users with pagination support\n\nReturns a paginated list of users and their deposits.\n\n# Parameters * `start_after` - Optional user address to start pagination after (for cursor-based pagination) * `limit` - Optional limit on number of results (default: 30, max: 100)\n\n# Example ```json { \"get_all_users\": { \"start_after\": null, \"limit\": 50 } } ```",
+      "type": "object",
+      "required": [
+        "get_all_users"
+      ],
+      "properties": {
+        "get_all_users": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "description": "Maximum number of results to return (default: 30, max: 100)",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "start_after": {
+              "description": "User address to start pagination after (cursor for next page)",
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Addr"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "get_user_count"
+      ],
+      "properties": {
+        "get_user_count": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "get_total_deposits"
+      ],
+      "properties": {
+        "get_total_deposits": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "get_config"
+      ],
+      "properties": {
+        "get_config": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "description": "Validate index consistency\n\nChecks that the index storage is consistent: - user_count matches actual number of users in index - All indices are valid and point to users with non-zero balances - Reverse index matches forward index\n\nThis is useful for debugging and ensuring data integrity.",
+      "type": "object",
+      "required": [
+        "validate_index"
+      ],
+      "properties": {
+        "validate_index": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ],
+  "definitions": {
+    "Addr": {
+      "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no assumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways 1. Use `Addr::unchecked(input)` 2. Use `let checked: Addr = deps.api.addr_validate(input)?` 3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?` 4. Deserialize from JSON. This must only be done from JSON that was validated before such as a contract's state. `Addr` must not be used in messages sent by the user because this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create a mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String` instance.",
+      "type": "string"
+    }
+  }
+}

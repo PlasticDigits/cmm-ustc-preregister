@@ -1,0 +1,14 @@
+[package]
+name = "integration-tests"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "integration"
+path = "integration.rs"
+
+[dependencies]
+cosmwasm-std = { version = "1.5.11", features = ["staking"] }
+cw-multi-test = "1.0.0"
+ustc-preregister = { path = "../contracts/ustc-preregister" }
+
