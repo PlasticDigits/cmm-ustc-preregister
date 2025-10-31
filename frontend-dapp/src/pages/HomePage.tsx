@@ -7,6 +7,8 @@ import { Image } from '@/components/common/Image';
 import { FaWallet } from 'react-icons/fa';
 import { SiBinance, SiTerra } from 'react-icons/si';
 import { motion } from 'framer-motion';
+import TerraLogo from '../assets/icons/lunc.png'
+import { SiBinance } from 'react-icons/si';
 
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -118,13 +120,11 @@ export const HomePage: React.FC = () => {
           }}
           onClick={() => navigate('/terraclassic')}
           >
-            <Icon 
-              icon={SiTerra} 
-              size={48} 
-              color="var(--cyan-primary)" 
-              withGlow
-              className="icon-wrapper"
-              style={{ marginBottom: '1rem' }}
+            <img 
+              src={TerraLogo} 
+              height={48}
+              width={48}
+              style={{ marginBottom: '1rem', display: 'inline-block' }}
             />
             <h2 className="gradient-text-cyan" style={{ marginBottom: '1rem' }}>Terra Classic</h2>
             <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
