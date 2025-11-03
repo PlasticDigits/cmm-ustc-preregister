@@ -32,5 +32,17 @@ pub enum ContractError {
     
     #[error("Index conversion failed: Index out of valid range")]
     IndexConversionFailed {},
+    
+    #[error("Withdrawal destination not set")]
+    WithdrawalDestinationNotSet {},
+    
+    #[error("Withdrawal timestamp not set")]
+    WithdrawalTimestampNotSet {},
+    
+    #[error("Withdrawal not yet unlocked")]
+    WithdrawalNotUnlocked {},
+    
+    #[error("Invalid timestamp: must be at least 7 days in the future")]
+    InvalidTimestamp {},
 }
 

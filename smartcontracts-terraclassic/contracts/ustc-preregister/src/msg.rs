@@ -13,6 +13,19 @@ pub enum ExecuteMsg {
     Withdraw { amount: Uint128 },
     OwnerWithdraw {},
     UpdateConfig { owner: Option<Addr> },
+    /// Owner function to set withdrawal destination and unlock timestamp
+    /// 
+    /// Sets the destination address for timelocked withdrawals and the timestamp
+    /// when withdrawal becomes available. The timestamp must be at least 7 days
+    /// (604800 seconds) in the future. Can be called multiple times to update
+    /// the destination, but timestamp always resets to the new value.
+    SetWithdrawalDestination {
+        /// Address to receive USTC withdrawals
+        destination: Addr,
+        /// Unix timestamp (in seconds) when withdrawal becomes available
+        /// Must be at least 7 days in the future
+        unlock_timestamp: u64,
+    },
 }
 
 #[cw_serde]
@@ -65,6 +78,13 @@ pub enum QueryMsg {
     /// This is useful for debugging and ensuring data integrity.
     #[returns(ValidateIndexResponse)]
     ValidateIndex {},
+    
+    /// Get withdrawal information
+    /// 
+    /// Returns the withdrawal destination address, unlock timestamp, and whether
+    /// withdrawal is configured (both destination and timestamp are set).
+    #[returns(GetWithdrawalInfoResponse)]
+    GetWithdrawalInfo {},
 }
 
 // Response types
@@ -104,5 +124,15 @@ pub struct ValidateIndexResponse {
     pub user_count_stored: u32,
     pub user_count_actual: u32,
     pub total_users_in_index: u32,
+}
+
+#[cw_serde]
+pub struct GetWithdrawalInfoResponse {
+    /// Withdrawal destination address, or None if not set
+    pub destination: Option<Addr>,
+    /// Unlock timestamp (Unix timestamp in seconds), or 0 if not set
+    pub unlock_timestamp: u64,
+    /// Whether withdrawal is configured (both destination and timestamp are set)
+    pub is_configured: bool,
 }
 

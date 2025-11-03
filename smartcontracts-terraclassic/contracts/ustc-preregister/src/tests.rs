@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{coins, Addr, Uint128};
+    use cosmwasm_std::{coins, Addr, Uint128, BankMsg};
     use crate::contract::{execute, instantiate, query};
     use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 
@@ -159,16 +159,40 @@ mod tests {
         // First deposit from user
         let funds = coins(1000u128, USTC_DENOM);
         let info = mock_info(USER1, &funds);
-        let env = mock_env();
+        let mut env = mock_env();
         execute(deps.as_mut(), env.clone(), info, ExecuteMsg::Deposit {}).unwrap();
         
-        // Owner withdraw - this will fail in tests because we can't actually transfer
-        // But we can verify the function executes
+        // Set up querier to return balance when queried
+        deps.querier.update_balance(
+            &env.contract.address,
+            coins(1000u128, USTC_DENOM),
+        );
+        
+        // Set withdrawal destination and unlock timestamp (7 days in future)
+        let destination = Addr::unchecked("terra1destination");
+        let unlock_timestamp = env.block.time.seconds() + 7 * 24 * 60 * 60 + 1; // 7 days + 1 second
+        let info = mock_info(OWNER, &[]);
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination: destination.clone(),
+            unlock_timestamp,
+        };
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Advance time past unlock timestamp
+        env.block.time = env.block.time.plus_seconds(7 * 24 * 60 * 60 + 1);
+        
+        // Owner withdraw - should succeed
         let info = mock_info(OWNER, &[]);
         let msg = ExecuteMsg::OwnerWithdraw {};
         let res = execute(deps.as_mut(), env, info, msg);
-        // This will work if we use cw-multi-test properly
-        assert!(res.is_ok() || res.is_err()); // Just check it doesn't panic
+        assert!(res.is_ok());
+        
+        // Verify the response attributes
+        let res = res.unwrap();
+        assert_eq!(res.attributes[0].key, "action");
+        assert_eq!(res.attributes[0].value, "owner_withdraw");
+        assert_eq!(res.attributes[1].key, "destination");
+        assert_eq!(res.attributes[1].value, destination.to_string());
     }
 
     #[test]
@@ -527,11 +551,23 @@ mod tests {
         let mut deps = mock_dependencies();
         setup_contract(&mut deps);
         
+        // Set withdrawal destination and unlock timestamp first
+        let destination = Addr::unchecked("terra1destination");
+        let mut env = mock_env();
+        let unlock_timestamp = env.block.time.seconds() + 7 * 24 * 60 * 60 + 1;
         let info = mock_info(OWNER, &[]);
-        let env = mock_env();
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination,
+            unlock_timestamp,
+        };
+        execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        
+        // Advance time past unlock timestamp
+        env.block.time = env.block.time.plus_seconds(7 * 24 * 60 * 60 + 1);
+        
+        // Owner withdraw - should error because contract has no balance
         let msg = ExecuteMsg::OwnerWithdraw {};
         let res = execute(deps.as_mut(), env, info, msg);
-        // Should error because contract has no balance
         assert!(res.is_err());
     }
     
@@ -871,6 +907,374 @@ mod tests {
         let msg = ExecuteMsg::Withdraw { amount: Uint128::from(1u128) };
         let res = execute(deps.as_mut(), env.clone(), info, msg);
         assert!(res.is_err());
+    }
+    
+    #[test]
+    fn test_set_withdrawal_destination_valid() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        let destination = Addr::unchecked("terra1destination");
+        let env = mock_env();
+        let unlock_timestamp = env.block.time.seconds() + 7 * 24 * 60 * 60 + 1; // 7 days + 1 second
+        
+        let info = mock_info(OWNER, &[]);
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination: destination.clone(),
+            unlock_timestamp,
+        };
+        
+        let res = execute(deps.as_mut(), env.clone(), info, msg);
+        assert!(res.is_ok());
+        
+        // Verify attributes
+        let res = res.unwrap();
+        assert_eq!(res.attributes[0].key, "action");
+        assert_eq!(res.attributes[0].value, "set_withdrawal_destination");
+        assert_eq!(res.attributes[1].key, "destination");
+        assert_eq!(res.attributes[1].value, destination.to_string());
+        assert_eq!(res.attributes[2].key, "unlock_timestamp");
+        assert_eq!(res.attributes[2].value, unlock_timestamp.to_string());
+        
+        // Verify withdrawal info query
+        let query_msg = QueryMsg::GetWithdrawalInfo {};
+        let res = query(deps.as_ref(), env, query_msg).unwrap();
+        let info: crate::msg::GetWithdrawalInfoResponse = cosmwasm_std::from_json(&res).unwrap();
+        assert_eq!(info.destination, Some(destination));
+        assert_eq!(info.unlock_timestamp, unlock_timestamp);
+        assert!(info.is_configured);
+    }
+    
+    #[test]
+    fn test_set_withdrawal_destination_invalid_timestamp() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        let destination = Addr::unchecked("terra1destination");
+        let env = mock_env();
+        // Try to set timestamp less than 7 days in future
+        let unlock_timestamp = env.block.time.seconds() + 6 * 24 * 60 * 60; // 6 days only
+        
+        let info = mock_info(OWNER, &[]);
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination,
+            unlock_timestamp,
+        };
+        
+        let res = execute(deps.as_mut(), env, info, msg);
+        assert!(res.is_err());
+    }
+    
+    #[test]
+    fn test_set_withdrawal_destination_exactly_7_days() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        let destination = Addr::unchecked("terra1destination");
+        let env = mock_env();
+        // The contract requires: unlock_timestamp >= current_time + 7 * 24 * 60 * 60
+        // So exactly 7 days should pass (>= means equal or greater)
+        let unlock_timestamp = env.block.time.seconds() + 7 * 24 * 60 * 60; // Exactly 7 days
+        
+        let info = mock_info(OWNER, &[]);
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination,
+            unlock_timestamp,
+        };
+        
+        let res = execute(deps.as_mut(), env, info, msg);
+        assert!(res.is_ok()); // Should pass because exactly 7 days meets the >= requirement
+    }
+    
+    #[test]
+    fn test_set_withdrawal_destination_unauthorized() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        let destination = Addr::unchecked("terra1destination");
+        let env = mock_env();
+        let unlock_timestamp = env.block.time.seconds() + 7 * 24 * 60 * 60 + 1;
+        
+        // Non-owner tries to set withdrawal destination
+        let info = mock_info(USER1, &[]);
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination,
+            unlock_timestamp,
+        };
+        
+        let res = execute(deps.as_mut(), env, info, msg);
+        assert!(res.is_err());
+    }
+    
+    #[test]
+    fn test_owner_withdraw_destination_not_set() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        // Deposit from user
+        let funds = coins(1000u128, USTC_DENOM);
+        let info = mock_info(USER1, &funds);
+        let env = mock_env();
+        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::Deposit {}).unwrap();
+        
+        // Try to withdraw without setting destination
+        let info = mock_info(OWNER, &[]);
+        let msg = ExecuteMsg::OwnerWithdraw {};
+        let res = execute(deps.as_mut(), env, info, msg);
+        assert!(res.is_err());
+    }
+    
+    #[test]
+    fn test_owner_withdraw_timestamp_not_set() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        // Deposit from user
+        let funds = coins(1000u128, USTC_DENOM);
+        let info = mock_info(USER1, &funds);
+        let env = mock_env();
+        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::Deposit {}).unwrap();
+        
+        // Set destination but timestamp validation will fail because we can't set it to 0
+        // So we test that if destination is set but timestamp is still 0 (from initialization),
+        // withdrawal fails
+        
+        // Actually, we can't set timestamp to 0 because validation requires >= 7 days
+        // So we test that without setting destination at all, withdrawal fails
+        // (which tests the destination not set case)
+        
+        // But for this test, we want to test timestamp not set specifically
+        // Since we can't set timestamp to 0 via SetWithdrawalDestination,
+        // we'll test that withdrawal fails when destination is set but timestamp is 0
+        // by checking the error when timestamp is 0 (which is the initial state)
+        
+        // Set destination with valid timestamp first
+        let destination = Addr::unchecked("terra1destination");
+        let info = mock_info(OWNER, &[]);
+        let unlock_timestamp = env.block.time.seconds() + 7 * 24 * 60 * 60 + 1;
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination: destination.clone(),
+            unlock_timestamp,
+        };
+        execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        
+        // Manually set timestamp to 0 to test the edge case
+        // This simulates the case where timestamp somehow became 0
+        use crate::state::WITHDRAWAL_UNLOCK_TIMESTAMP;
+        WITHDRAWAL_UNLOCK_TIMESTAMP.save(deps.as_mut().storage, &0u64).unwrap();
+        
+        // Try to withdraw - should fail because timestamp is 0
+        let msg = ExecuteMsg::OwnerWithdraw {};
+        let res = execute(deps.as_mut(), env, info, msg);
+        assert!(res.is_err());
+    }
+    
+    #[test]
+    fn test_owner_withdraw_timestamp_not_passed() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        // Deposit from user
+        let funds = coins(1000u128, USTC_DENOM);
+        let info = mock_info(USER1, &funds);
+        let mut env = mock_env();
+        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::Deposit {}).unwrap();
+        
+        // Set withdrawal destination with timestamp 7 days in future
+        let destination = Addr::unchecked("terra1destination");
+        let unlock_timestamp = env.block.time.seconds() + 7 * 24 * 60 * 60 + 1;
+        let info = mock_info(OWNER, &[]);
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination,
+            unlock_timestamp,
+        };
+        execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        
+        // Try to withdraw immediately (before timestamp passes) - should fail
+        let msg = ExecuteMsg::OwnerWithdraw {};
+        let res = execute(deps.as_mut(), env, info, msg);
+        assert!(res.is_err());
+    }
+    
+    #[test]
+    fn test_owner_withdraw_transfers_to_destination() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        // Deposit from user
+        let funds = coins(1000u128, USTC_DENOM);
+        let info = mock_info(USER1, &funds);
+        let mut env = mock_env();
+        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::Deposit {}).unwrap();
+        
+        // Set up querier to return balance when queried
+        deps.querier.update_balance(
+            &env.contract.address,
+            coins(1000u128, USTC_DENOM),
+        );
+        
+        // Set withdrawal destination
+        let destination = Addr::unchecked("terra1destination");
+        let unlock_timestamp = env.block.time.seconds() + 7 * 24 * 60 * 60 + 1;
+        let info = mock_info(OWNER, &[]);
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination: destination.clone(),
+            unlock_timestamp,
+        };
+        execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        
+        // Advance time past unlock timestamp
+        env.block.time = env.block.time.plus_seconds(7 * 24 * 60 * 60 + 1);
+        
+        // Owner withdraw
+        let msg = ExecuteMsg::OwnerWithdraw {};
+        let res = execute(deps.as_mut(), env, info, msg).unwrap();
+        
+        // Verify it transfers to destination, not owner
+        assert_eq!(res.messages.len(), 1);
+        if let cosmwasm_std::CosmosMsg::Bank(bank_msg) = &res.messages[0].msg {
+            if let BankMsg::Send { to_address, .. } = bank_msg {
+                assert_eq!(to_address, &destination.to_string());
+            } else {
+                panic!("Expected BankMsg::Send");
+            }
+        } else {
+            panic!("Expected BankMsg");
+        }
+        
+        // Verify attributes show destination
+        assert_eq!(res.attributes[1].key, "destination");
+        assert_eq!(res.attributes[1].value, destination.to_string());
+    }
+    
+    #[test]
+    fn test_update_withdrawal_destination_resets_timestamp() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        let destination1 = Addr::unchecked("terra1destination1");
+        let mut env = mock_env();
+        let unlock_timestamp1 = env.block.time.seconds() + 7 * 24 * 60 * 60 + 1;
+        
+        // Set first withdrawal destination
+        let info = mock_info(OWNER, &[]);
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination: destination1.clone(),
+            unlock_timestamp: unlock_timestamp1,
+        };
+        execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        
+        // Verify first setting
+        let query_msg = QueryMsg::GetWithdrawalInfo {};
+        let res = query(deps.as_ref(), env.clone(), query_msg).unwrap();
+        let info_resp: crate::msg::GetWithdrawalInfoResponse = cosmwasm_std::from_json(&res).unwrap();
+        assert_eq!(info_resp.destination, Some(destination1));
+        assert_eq!(info_resp.unlock_timestamp, unlock_timestamp1);
+        
+        // Update to new destination with new timestamp
+        let destination2 = Addr::unchecked("terra1destination2");
+        let unlock_timestamp2 = env.block.time.seconds() + 14 * 24 * 60 * 60 + 1; // 14 days in future
+        
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination: destination2.clone(),
+            unlock_timestamp: unlock_timestamp2,
+        };
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Verify destination and timestamp were updated
+        let query_msg = QueryMsg::GetWithdrawalInfo {};
+        let res = query(deps.as_ref(), env, query_msg).unwrap();
+        let info_resp: crate::msg::GetWithdrawalInfoResponse = cosmwasm_std::from_json(&res).unwrap();
+        assert_eq!(info_resp.destination, Some(destination2));
+        assert_eq!(info_resp.unlock_timestamp, unlock_timestamp2);
+        assert_ne!(info_resp.unlock_timestamp, unlock_timestamp1);
+    }
+    
+    #[test]
+    fn test_get_withdrawal_info_not_configured() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        // Query withdrawal info before setting it
+        let query_msg = QueryMsg::GetWithdrawalInfo {};
+        let env = mock_env();
+        let res = query(deps.as_ref(), env, query_msg).unwrap();
+        let info: crate::msg::GetWithdrawalInfoResponse = cosmwasm_std::from_json(&res).unwrap();
+        
+        assert_eq!(info.destination, None);
+        assert_eq!(info.unlock_timestamp, 0);
+        assert!(!info.is_configured);
+    }
+    
+    #[test]
+    fn test_get_withdrawal_info_configured() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        let destination = Addr::unchecked("terra1destination");
+        let env = mock_env();
+        let unlock_timestamp = env.block.time.seconds() + 7 * 24 * 60 * 60 + 1;
+        
+        // Set withdrawal destination
+        let info = mock_info(OWNER, &[]);
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination: destination.clone(),
+            unlock_timestamp,
+        };
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Query withdrawal info
+        let query_msg = QueryMsg::GetWithdrawalInfo {};
+        let res = query(deps.as_ref(), env, query_msg).unwrap();
+        let info: crate::msg::GetWithdrawalInfoResponse = cosmwasm_std::from_json(&res).unwrap();
+        
+        assert_eq!(info.destination, Some(destination));
+        assert_eq!(info.unlock_timestamp, unlock_timestamp);
+        assert!(info.is_configured);
+    }
+    
+    #[test]
+    fn test_owner_withdraw_success_after_timestamp() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        // Deposit from user
+        let funds = coins(5000u128, USTC_DENOM);
+        let info = mock_info(USER1, &funds);
+        let mut env = mock_env();
+        execute(deps.as_mut(), env.clone(), info, ExecuteMsg::Deposit {}).unwrap();
+        
+        // Set up querier to return balance when queried
+        deps.querier.update_balance(
+            &env.contract.address,
+            coins(5000u128, USTC_DENOM),
+        );
+        
+        // Set withdrawal destination
+        let destination = Addr::unchecked("terra1destination");
+        let unlock_timestamp = env.block.time.seconds() + 7 * 24 * 60 * 60 + 1;
+        let info = mock_info(OWNER, &[]);
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination: destination.clone(),
+            unlock_timestamp,
+        };
+        execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        
+        // Advance time past unlock timestamp
+        env.block.time = env.block.time.plus_seconds(7 * 24 * 60 * 60 + 2);
+        
+        // Owner withdraw should succeed
+        let msg = ExecuteMsg::OwnerWithdraw {};
+        let res = execute(deps.as_mut(), env, info, msg);
+        assert!(res.is_ok());
+        
+        let res = res.unwrap();
+        assert_eq!(res.attributes[0].key, "action");
+        assert_eq!(res.attributes[0].value, "owner_withdraw");
+        assert_eq!(res.attributes[1].key, "destination");
+        assert_eq!(res.attributes[1].value, destination.to_string());
+        assert_eq!(res.attributes[2].key, "amount");
+        assert_eq!(res.attributes[2].value, "5000");
     }
 }
 

@@ -5,8 +5,8 @@ use cw2::set_contract_version;
 
 use crate::error::ContractError;
 use crate::helpers::{validate_denom, verify_owner, remove_user_from_index};
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, GetUserDepositResponse, GetAllUsersResponse, GetUserCountResponse, GetTotalDepositsResponse, GetConfigResponse, ValidateIndexResponse};
-use crate::state::{Config, CONFIG, USERS, TOTAL_DEPOSITS, USER_COUNT, USER_INDEX, USER_INDEX_REVERSE};
+use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, GetUserDepositResponse, GetAllUsersResponse, GetUserCountResponse, GetTotalDepositsResponse, GetConfigResponse, ValidateIndexResponse, GetWithdrawalInfoResponse};
+use crate::state::{Config, CONFIG, USERS, TOTAL_DEPOSITS, USER_COUNT, USER_INDEX, USER_INDEX_REVERSE, WITHDRAWAL_DESTINATION, WITHDRAWAL_UNLOCK_TIMESTAMP};
 
 const CONTRACT_NAME: &str = "crates.io:ustc-preregister";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -45,6 +45,10 @@ pub fn instantiate(
     TOTAL_DEPOSITS.save(deps.storage, &Uint128::zero())?;
     USER_COUNT.save(deps.storage, &0u32)?;
     
+    // Initialize withdrawal destination to None and unlock timestamp to 0
+    WITHDRAWAL_DESTINATION.save(deps.storage, &None)?;
+    WITHDRAWAL_UNLOCK_TIMESTAMP.save(deps.storage, &0u64)?;
+    
     Ok(Response::new()
         .add_attribute("action", "instantiate")
         .add_attribute("owner", config.owner.to_string())
@@ -62,6 +66,9 @@ pub fn execute(
         ExecuteMsg::Withdraw { amount } => execute_withdraw(deps, info, amount),
         ExecuteMsg::OwnerWithdraw {} => execute_owner_withdraw(deps, env, info),
         ExecuteMsg::UpdateConfig { owner } => execute_update_config(deps, info, owner),
+        ExecuteMsg::SetWithdrawalDestination { destination, unlock_timestamp } => {
+            execute_set_withdrawal_destination(deps, env, info, destination, unlock_timestamp)
+        },
     }
 }
 
@@ -188,10 +195,13 @@ pub fn execute_withdraw(
 
 /// Owner-only function to withdraw all accumulated USTC tokens
 /// 
-/// This function transfers all USTC tokens from the preregistration contract to the owner.
-/// The primary purpose is to transfer accumulated USTC from this preregistration contract
-/// to a future Collateralized Market Maker (CMM) contract for use in market operations.
-/// Once executed after the preregistration period ends, users can no longer withdraw.
+/// This function transfers all USTC tokens from the preregistration contract to the
+/// withdrawal destination address (set via SetWithdrawalDestination). The withdrawal
+/// is subject to a 7-day timelock: the unlock timestamp must be set and must have passed.
+/// 
+/// Requires:
+/// - Withdrawal destination must be set via SetWithdrawalDestination
+/// - Withdrawal unlock timestamp must be set and current time >= unlock timestamp
 /// 
 /// # Arguments
 /// * `deps` - Dependencies for storage and API access
@@ -210,6 +220,22 @@ pub fn execute_owner_withdraw(
     // Check caller is owner
     verify_owner(&info, &config)?;
     
+    // Check withdrawal destination is set
+    let destination = WITHDRAWAL_DESTINATION
+        .load(deps.storage)?
+        .ok_or(ContractError::WithdrawalDestinationNotSet {})?;
+    
+    // Check unlock timestamp is set and has passed
+    let unlock_timestamp = WITHDRAWAL_UNLOCK_TIMESTAMP.load(deps.storage)?;
+    if unlock_timestamp == 0 {
+        return Err(ContractError::WithdrawalTimestampNotSet {});
+    }
+    
+    let current_time = env.block.time.seconds();
+    if current_time < unlock_timestamp {
+        return Err(ContractError::WithdrawalNotUnlocked {});
+    }
+    
     // Get contract balance
     let balance = deps.querier.query_balance(&env.contract.address, &config.ustc_denom)?;
     
@@ -217,18 +243,64 @@ pub fn execute_owner_withdraw(
         return Err(ContractError::NoBalanceToWithdraw {});
     }
     
-    // Transfer all to owner via BankMsg
+    // Transfer all to withdrawal destination via BankMsg
     let bank_msg = BankMsg::Send {
-        to_address: config.owner.to_string(),
+        to_address: destination.to_string(),
         amount: vec![balance.clone()],
     };
     
     Ok(Response::new()
         .add_message(bank_msg)
         .add_attribute("action", "owner_withdraw")
-        .add_attribute("owner", config.owner.to_string())
+        .add_attribute("destination", destination.to_string())
         .add_attribute("amount", balance.amount.to_string())
         .add_attribute("event", "owner_withdraw"))
+}
+
+/// Owner-only function to set withdrawal destination and unlock timestamp
+/// 
+/// Sets the destination address for timelocked withdrawals and the timestamp when
+/// withdrawal becomes available. The timestamp must be at least 7 days (604800 seconds)
+/// in the future. Can be called multiple times to update the destination, but timestamp
+/// always resets to the new value.
+/// 
+/// # Arguments
+/// * `deps` - Dependencies for storage and API access
+/// * `env` - Contract environment information
+/// * `info` - Message information containing sender
+/// * `destination` - Address to receive USTC withdrawals
+/// * `unlock_timestamp` - Unix timestamp (in seconds) when withdrawal becomes available
+/// 
+/// # Returns
+/// * `Response` with withdrawal destination set event attributes
+pub fn execute_set_withdrawal_destination(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    destination: cosmwasm_std::Addr,
+    unlock_timestamp: u64,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    // Check caller is owner
+    verify_owner(&info, &config)?;
+    
+    // Validate timestamp is at least 7 days in the future
+    let current_time = env.block.time.seconds();
+    let min_timestamp = current_time + 7 * 24 * 60 * 60; // 7 days in seconds
+    
+    if unlock_timestamp < min_timestamp {
+        return Err(ContractError::InvalidTimestamp {});
+    }
+    
+    // Save withdrawal destination and unlock timestamp
+    WITHDRAWAL_DESTINATION.save(deps.storage, &Some(destination.clone()))?;
+    WITHDRAWAL_UNLOCK_TIMESTAMP.save(deps.storage, &unlock_timestamp)?;
+    
+    Ok(Response::new()
+        .add_attribute("action", "set_withdrawal_destination")
+        .add_attribute("destination", destination.to_string())
+        .add_attribute("unlock_timestamp", unlock_timestamp.to_string()))
 }
 
 /// Owner-only function to update contract configuration
@@ -275,6 +347,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<cosmwasm_std::Bi
         QueryMsg::GetTotalDeposits {} => to_json_binary(&query_total_deposits(deps)?),
         QueryMsg::GetConfig {} => to_json_binary(&query_config(deps)?),
         QueryMsg::ValidateIndex {} => to_json_binary(&query_validate_index(deps)?),
+        QueryMsg::GetWithdrawalInfo {} => to_json_binary(&query_withdrawal_info(deps)?),
     }
 }
 
@@ -485,6 +558,28 @@ pub fn query_validate_index(deps: Deps) -> StdResult<ValidateIndexResponse> {
         user_count_stored,
         user_count_actual: users_found,
         total_users_in_index: total_in_index,
+    })
+}
+
+/// Query withdrawal information
+/// 
+/// Returns the withdrawal destination address, unlock timestamp, and whether
+/// withdrawal is configured (both destination and timestamp are set).
+/// 
+/// # Arguments
+/// * `deps` - Dependencies for storage and API access
+/// 
+/// # Returns
+/// * `GetWithdrawalInfoResponse` containing withdrawal configuration
+pub fn query_withdrawal_info(deps: Deps) -> StdResult<GetWithdrawalInfoResponse> {
+    let destination = WITHDRAWAL_DESTINATION.load(deps.storage)?;
+    let unlock_timestamp = WITHDRAWAL_UNLOCK_TIMESTAMP.load(deps.storage)?;
+    let is_configured = destination.is_some() && unlock_timestamp != 0;
+    
+    Ok(GetWithdrawalInfoResponse {
+        destination,
+        unlock_timestamp,
+        is_configured,
     })
 }
 
