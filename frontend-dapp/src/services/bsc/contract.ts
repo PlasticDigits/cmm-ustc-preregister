@@ -103,6 +103,46 @@ const CONTRACT_ABI = [
     name: 'Withdraw',
     type: 'event',
   },
+  {
+    inputs: [],
+    name: 'getWithdrawalDestination',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'getWithdrawalUnlockTimestamp',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'isWithdrawalConfigured',
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { name: 'destination', type: 'address' },
+      { name: 'unlockTimestamp', type: 'uint256' },
+    ],
+    name: 'setWithdrawalDestination',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, name: 'destination', type: 'address' },
+      { indexed: false, name: 'unlockTimestamp', type: 'uint256' },
+    ],
+    name: 'WithdrawalDestinationSet',
+    type: 'event',
+  },
 ] as const;
 
 export function getContract(signerOrProvider: ethers.Signer | ethers.Provider): Contract {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useBSCWallet } from '@/hooks/useBSCWallet';
 import { useBSCContract } from '@/hooks/useBSCContract';
+import { useWithdrawalInfo } from '@/hooks/useWithdrawalInfo';
 import { Header } from '@/components/common/Header';
 import { Footer } from '@/components/common/Footer';
 import { Card } from '@/components/common/Card';
@@ -9,13 +10,14 @@ import { Input } from '@/components/common/Input';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { useToast } from '@/contexts/ToastContext';
 import { validateAmount } from '@/utils/validation';
-import { formatBalance } from '@/utils/format';
+import { formatBalance, formatTimeRemaining, formatAddress } from '@/utils/format';
 import { USTC_TOKEN_ADDRESS } from '@/utils/constants';
 import { ethers } from 'ethers';
 
 export const BSCPage: React.FC = () => {
   const { address, isConnected, isCorrectNetwork, connect, disconnect, isConnecting, signer } = useBSCWallet();
-  const { userDeposit, totalDeposits, userCount, deposit, withdraw, isDepositing, isWithdrawing } = useBSCContract(signer);
+  const { contract, userDeposit, totalDeposits, userCount, deposit, withdraw, isDepositing, isWithdrawing } = useBSCContract(signer);
+  const { withdrawalInfo, timeRemaining, isUnlocked, isLoading: isLoadingWithdrawal } = useWithdrawalInfo('bsc', contract);
   const { showToast } = useToast();
   
   const [depositAmount, setDepositAmount] = useState('');
@@ -186,6 +188,41 @@ export const BSCPage: React.FC = () => {
                 </p>
               </div>
             </div>
+          </Card>
+
+          {/* Withdrawal Status Card */}
+          <Card>
+            <h3 style={{ color: 'var(--gold-primary)', marginBottom: '1rem' }}>Withdrawal Status</h3>
+            {isLoadingWithdrawal ? (
+              <LoadingSpinner size="sm" />
+            ) : withdrawalInfo?.isConfigured ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Destination</p>
+                  <p style={{ color: 'var(--text-primary)', fontSize: '0.95rem', fontFamily: 'monospace' }}>
+                    {withdrawalInfo.destination ? formatAddress(withdrawalInfo.destination, 8, 6) : 'Not set'}
+                  </p>
+                </div>
+                {isUnlocked ? (
+                  <div>
+                    <p style={{ color: 'var(--success)', fontSize: '1rem', fontWeight: 600 }}>
+                      ✅ Ready to withdraw
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Unlocks in</p>
+                    <p style={{ color: 'var(--gold-primary)', fontSize: '1.1rem', fontWeight: 600 }}>
+                      {formatTimeRemaining(timeRemaining)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                Withdrawal destination not yet configured
+              </p>
+            )}
           </Card>
 
           {/* Deposit Card */}

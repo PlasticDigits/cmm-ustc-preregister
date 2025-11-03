@@ -85,6 +85,7 @@ export function useBSCContract(signer: ethers.JsonRpcSigner | null) {
   });
 
   return {
+    contract,
     userDeposit: userDeposit.data || '0',
     totalDeposits: totalDeposits.data || '0',
     userCount: userCount.data || 0,

@@ -1,7 +1,0 @@
-warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
-package:   /home/answorld/repos/cmm-ustc-preregister/smartcontracts-terraclassic/contracts/ustc-preregister/Cargo.toml
-workspace: /home/answorld/repos/cmm-ustc-preregister/smartcontracts-terraclassic/Cargo.toml
-   0.057287855s  INFO prepare_target{force=false package_id=integration-tests v1.0.0 (/home/answorld/repos/cmm-ustc-preregister/smartcontracts-terraclassic/tests) target="integration"}: cargo::core::compiler::fingerprint: fingerprint dirty for integration-tests v1.0.0 (/home/answorld/repos/cmm-ustc-preregister/smartcontracts-terraclassic/tests)/Check { test: false }/TargetInner { name: "integration", doc: true, ..: with_path("/home/answorld/repos/cmm-ustc-preregister/smartcontracts-terraclassic/tests/integration.rs", Edition2021) }
-   0.057306691s  INFO prepare_target{force=false package_id=integration-tests v1.0.0 (/home/answorld/repos/cmm-ustc-preregister/smartcontracts-terraclassic/tests) target="integration"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(Stale)
-    Checking integration-tests v1.0.0 (/home/answorld/repos/cmm-ustc-preregister/smartcontracts-terraclassic/tests)
-error: could not compile `integration-tests` (bin "integration") due to 1 previous error; 2 warnings emitted
