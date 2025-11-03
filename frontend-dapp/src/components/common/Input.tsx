@@ -1,15 +1,16 @@
 import React from 'react';
 import { Icon } from './Icon';
 import { Button } from './Button';
+import type { IconType } from 'react-icons/lib';
 
 export type InputSize = 'sm' | 'md' | 'lg';
 
-interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
   label?: string;
   error?: string;
   helperText?: string;
-  leftIcon?: React.ComponentType<{ size?: number }>;
-  rightIcon?: React.ComponentType<{ size?: number }>;
+  leftIcon?: IconType;
+  rightIcon?: IconType;
   showMaxButton?: boolean;
   onMaxClick?: () => void;
   maxButtonDisabled?: boolean;

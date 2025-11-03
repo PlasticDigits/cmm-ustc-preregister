@@ -5,10 +5,9 @@ import { Button } from '@/components/common/Button';
 import { Icon } from '@/components/common/Icon';
 import { Image } from '@/components/common/Image';
 import { FaWallet } from 'react-icons/fa';
-import { SiBinance, SiTerra } from 'react-icons/si';
-import { motion } from 'framer-motion';
-import TerraLogo from '../assets/icons/lunc.png'
 import { SiBinance } from 'react-icons/si';
+import { motion } from 'framer-motion';
+import TerraLogo from '../assets/icons/lunc.png';
 
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();

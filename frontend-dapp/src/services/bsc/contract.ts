@@ -1,5 +1,5 @@
 import { Contract, ethers } from 'ethers';
-import { BSC_CONTRACT_ADDRESS, BSC_RPC_URL } from '@/utils/constants';
+import { BSC_CONTRACT_ADDRESS } from '@/utils/constants';
 
 // BSC Contract ABI (from compiled contract)
 const CONTRACT_ABI = [
