@@ -49,3 +49,5 @@ export function truncateNumber(num: number | string, decimals: number = 2): stri
   return `${parts[0]}.${parts[1].slice(0, decimals)}`;
 }
 
+
+

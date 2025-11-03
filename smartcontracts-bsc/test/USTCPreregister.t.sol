@@ -27,6 +27,7 @@ contract USTCPreregisterTest is Test {
     event Withdraw(address indexed user, uint256 amount);
     event OwnerWithdraw(address indexed owner, uint256 amount);
     event UserAdded(address indexed user);
+    event WithdrawalDestinationSet(address indexed destination, uint256 unlockTimestamp);
     
     function setUp() public {
         // Deploy mock token
@@ -259,6 +260,107 @@ contract USTCPreregisterTest is Test {
     
     // ============ Owner Withdraw Tests ============
     
+    function test_OwnerWithdraw_RevertsIfDestinationNotSet() public {
+        // Setup deposits
+        vm.startPrank(user1);
+        mockToken.approve(address(preregister), DEPOSIT_AMOUNT);
+        preregister.deposit(DEPOSIT_AMOUNT);
+        vm.stopPrank();
+        
+        vm.startPrank(owner);
+        vm.expectRevert("USTCPreregister: withdrawal destination not set");
+        preregister.ownerWithdraw();
+        vm.stopPrank();
+    }
+    
+    function test_OwnerWithdraw_RevertsIfTimestampNotSet() public {
+        // Setup deposits
+        vm.startPrank(user1);
+        mockToken.approve(address(preregister), DEPOSIT_AMOUNT);
+        preregister.deposit(DEPOSIT_AMOUNT);
+        vm.stopPrank();
+        
+        // Initially, both destination and timestamp are not set (0/address(0))
+        // The first check (destination) will fail first, which is correct behavior
+        // This test verifies that when timestamp is not set (and destination is also not set),
+        // the function reverts. In practice, timestamp check is defensive programming
+        // since setWithdrawalDestination always sets both values.
+        assertEq(preregister.withdrawalUnlockTimestamp(), 0);
+        assertEq(preregister.withdrawalDestination(), address(0));
+        
+        vm.startPrank(owner);
+        // Both checks would fail, but destination check comes first
+        vm.expectRevert("USTCPreregister: withdrawal destination not set");
+        preregister.ownerWithdraw();
+        vm.stopPrank();
+    }
+    
+    function test_OwnerWithdraw_RevertsIfNotUnlocked() public {
+        // Setup deposits
+        vm.startPrank(user1);
+        mockToken.approve(address(preregister), DEPOSIT_AMOUNT);
+        preregister.deposit(DEPOSIT_AMOUNT);
+        vm.stopPrank();
+        
+        address destination = address(0x100);
+        uint256 unlockTimestamp = block.timestamp + 7 days;
+        
+        vm.startPrank(owner);
+        preregister.setWithdrawalDestination(destination, unlockTimestamp);
+        
+        vm.expectRevert("USTCPreregister: withdrawal not yet unlocked");
+        preregister.ownerWithdraw();
+        vm.stopPrank();
+    }
+    
+    function test_SetWithdrawalDestination_Success() public {
+        address destination = address(0x100);
+        uint256 unlockTimestamp = block.timestamp + 7 days;
+        
+        vm.startPrank(owner);
+        vm.expectEmit(true, false, false, true);
+        emit WithdrawalDestinationSet(destination, unlockTimestamp);
+        preregister.setWithdrawalDestination(destination, unlockTimestamp);
+        vm.stopPrank();
+        
+        assertEq(preregister.withdrawalDestination(), destination);
+        assertEq(preregister.withdrawalUnlockTimestamp(), unlockTimestamp);
+        assertTrue(preregister.isWithdrawalConfigured());
+    }
+    
+    function test_SetWithdrawalDestination_RevertsIfZeroDestination() public {
+        vm.startPrank(owner);
+        vm.expectRevert("USTCPreregister: zero destination address");
+        preregister.setWithdrawalDestination(address(0), block.timestamp + 7 days);
+        vm.stopPrank();
+    }
+    
+    function test_SetWithdrawalDestination_RevertsIfTimestampTooSoon() public {
+        address destination = address(0x100);
+        uint256 timestampTooSoon = block.timestamp + 6 days;
+        
+        vm.startPrank(owner);
+        vm.expectRevert("USTCPreregister: timestamp must be at least 7 days in future");
+        preregister.setWithdrawalDestination(destination, timestampTooSoon);
+        vm.stopPrank();
+    }
+    
+    function test_SetWithdrawalDestination_CanUpdateDestination() public {
+        address destination1 = address(0x100);
+        address destination2 = address(0x200);
+        uint256 unlockTimestamp1 = block.timestamp + 7 days;
+        uint256 unlockTimestamp2 = block.timestamp + 14 days;
+        
+        vm.startPrank(owner);
+        preregister.setWithdrawalDestination(destination1, unlockTimestamp1);
+        assertEq(preregister.withdrawalDestination(), destination1);
+        
+        preregister.setWithdrawalDestination(destination2, unlockTimestamp2);
+        assertEq(preregister.withdrawalDestination(), destination2);
+        assertEq(preregister.withdrawalUnlockTimestamp(), unlockTimestamp2);
+        vm.stopPrank();
+    }
+    
     function test_OwnerWithdraw_Success() public {
         // Setup deposits
         vm.startPrank(user1);
@@ -271,23 +373,122 @@ contract USTCPreregisterTest is Test {
         preregister.deposit(SMALL_AMOUNT);
         vm.stopPrank();
         
+        address destination = address(0x100);
+        uint256 unlockTimestamp = block.timestamp + 7 days;
+        
+        vm.startPrank(owner);
+        preregister.setWithdrawalDestination(destination, unlockTimestamp);
+        vm.stopPrank();
+        
         uint256 contractBalance = mockToken.balanceOf(address(preregister));
-        uint256 ownerBalance = mockToken.balanceOf(owner);
+        uint256 destinationBalance = mockToken.balanceOf(destination);
+        
+        // Fast forward time to unlock timestamp
+        vm.warp(unlockTimestamp);
         
         vm.startPrank(owner);
         vm.expectEmit(true, false, false, true);
-        emit OwnerWithdraw(owner, contractBalance);
+        emit OwnerWithdraw(destination, contractBalance);
         preregister.ownerWithdraw();
         vm.stopPrank();
         
-        assertEq(mockToken.balanceOf(owner), ownerBalance + contractBalance);
+        assertEq(mockToken.balanceOf(destination), destinationBalance + contractBalance);
         assertEq(mockToken.balanceOf(address(preregister)), 0);
+    }
+    
+    function test_OwnerWithdraw_TransfersToDestinationNotOwner() public {
+        // Setup deposits
+        vm.startPrank(user1);
+        mockToken.approve(address(preregister), DEPOSIT_AMOUNT);
+        preregister.deposit(DEPOSIT_AMOUNT);
+        vm.stopPrank();
+        
+        address destination = address(0x100);
+        uint256 unlockTimestamp = block.timestamp + 7 days;
+        
+        vm.startPrank(owner);
+        preregister.setWithdrawalDestination(destination, unlockTimestamp);
+        vm.stopPrank();
+        
+        uint256 contractBalance = mockToken.balanceOf(address(preregister));
+        uint256 ownerBalance = mockToken.balanceOf(owner);
+        uint256 destinationBalance = mockToken.balanceOf(destination);
+        
+        // Fast forward time to unlock timestamp
+        vm.warp(unlockTimestamp);
+        
+        vm.startPrank(owner);
+        preregister.ownerWithdraw();
+        vm.stopPrank();
+        
+        // Destination should receive tokens, owner should not
+        assertEq(mockToken.balanceOf(destination), destinationBalance + contractBalance);
+        assertEq(mockToken.balanceOf(owner), ownerBalance);
+    }
+    
+    function test_GetWithdrawalDestination_ReturnsCorrectValue() public {
+        assertEq(preregister.getWithdrawalDestination(), address(0));
+        
+        address destination = address(0x100);
+        uint256 unlockTimestamp = block.timestamp + 7 days;
+        
+        vm.startPrank(owner);
+        preregister.setWithdrawalDestination(destination, unlockTimestamp);
+        vm.stopPrank();
+        
+        assertEq(preregister.getWithdrawalDestination(), destination);
+    }
+    
+    function test_GetWithdrawalUnlockTimestamp_ReturnsCorrectValue() public {
+        assertEq(preregister.getWithdrawalUnlockTimestamp(), 0);
+        
+        address destination = address(0x100);
+        uint256 unlockTimestamp = block.timestamp + 7 days;
+        
+        vm.startPrank(owner);
+        preregister.setWithdrawalDestination(destination, unlockTimestamp);
+        vm.stopPrank();
+        
+        assertEq(preregister.getWithdrawalUnlockTimestamp(), unlockTimestamp);
+    }
+    
+    function test_IsWithdrawalConfigured_ReturnsFalseWhenNotSet() public {
+        assertFalse(preregister.isWithdrawalConfigured());
+    }
+    
+    function test_IsWithdrawalConfigured_ReturnsTrueWhenSet() public {
+        address destination = address(0x100);
+        uint256 unlockTimestamp = block.timestamp + 7 days;
+        
+        vm.startPrank(owner);
+        preregister.setWithdrawalDestination(destination, unlockTimestamp);
+        vm.stopPrank();
+        
+        assertTrue(preregister.isWithdrawalConfigured());
+    }
+    
+    function test_SetWithdrawalDestination_RevertsIfNotOwner() public {
+        address destination = address(0x100);
+        uint256 unlockTimestamp = block.timestamp + 7 days;
+        
+        vm.startPrank(nonOwner);
+        vm.expectRevert();
+        preregister.setWithdrawalDestination(destination, unlockTimestamp);
+        vm.stopPrank();
     }
     
     function test_OwnerWithdraw_RevertsIfNotOwner() public {
         vm.startPrank(user1);
         mockToken.approve(address(preregister), DEPOSIT_AMOUNT);
         preregister.deposit(DEPOSIT_AMOUNT);
+        vm.stopPrank();
+        
+        address destination = address(0x100);
+        uint256 unlockTimestamp = block.timestamp + 7 days;
+        
+        vm.startPrank(owner);
+        preregister.setWithdrawalDestination(destination, unlockTimestamp);
+        vm.warp(unlockTimestamp);
         vm.stopPrank();
         
         vm.startPrank(nonOwner);
@@ -297,7 +498,13 @@ contract USTCPreregisterTest is Test {
     }
     
     function test_OwnerWithdraw_RevertsIfZeroBalance() public {
+        address destination = address(0x100);
+        uint256 unlockTimestamp = block.timestamp + 7 days;
+        
         vm.startPrank(owner);
+        preregister.setWithdrawalDestination(destination, unlockTimestamp);
+        vm.warp(unlockTimestamp);
+        
         vm.expectRevert("USTCPreregister: no balance to withdraw");
         preregister.ownerWithdraw();
         vm.stopPrank();

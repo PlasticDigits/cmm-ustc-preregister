@@ -21,3 +21,5 @@ export interface ContractStats {
   contractBalance: string;
 }
 
+
+

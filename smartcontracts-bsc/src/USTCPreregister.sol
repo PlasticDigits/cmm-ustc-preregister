@@ -29,6 +29,12 @@ contract USTCPreregister is IUSTCPreregister, Ownable, ReentrancyGuard {
     /// @notice Total amount of USTC-cb deposited across all users
     uint256 public totalDeposits;
     
+    /// @notice Destination address for timelocked withdrawals
+    address public withdrawalDestination;
+    
+    /// @notice Timestamp when withdrawal becomes available (Unix timestamp)
+    uint256 public withdrawalUnlockTimestamp;
+    
     /**
      * @notice Constructor to initialize the contract
      * @param _ustcToken Address of the USTC-cb token contract
@@ -101,18 +107,44 @@ contract USTCPreregister is IUSTCPreregister, Ownable, ReentrancyGuard {
     }
     
     /**
+     * @notice Owner function to set withdrawal destination and unlock timestamp
+     * @param destination Address to receive USTC withdrawals
+     * @param unlockTimestamp Unix timestamp when withdrawal becomes available
+     * @dev Timestamp must be at least 7 days (604800 seconds) in the future
+     * @dev Can be called multiple times to update destination, but timestamp always resets
+     */
+    function setWithdrawalDestination(address destination, uint256 unlockTimestamp) 
+        external 
+        onlyOwner 
+    {
+        require(destination != address(0), "USTCPreregister: zero destination address");
+        require(unlockTimestamp >= block.timestamp + 7 days, "USTCPreregister: timestamp must be at least 7 days in future");
+        
+        withdrawalDestination = destination;
+        withdrawalUnlockTimestamp = unlockTimestamp;
+        
+        emit WithdrawalDestinationSet(destination, unlockTimestamp);
+    }
+    
+    /**
      * @notice Owner function to withdraw all accumulated USTC-cb tokens
-     * @dev Only callable by the contract owner. Once executed after the preregistration period ends, users can no longer withdraw.
+     * @dev Only callable by the contract owner
+     * @dev Requires withdrawalDestination and withdrawalUnlockTimestamp to be set
+     * @dev Requires current timestamp >= withdrawalUnlockTimestamp
+     * @dev Transfers tokens to withdrawalDestination instead of owner
      */
     function ownerWithdraw() external onlyOwner nonReentrant {
+        require(withdrawalDestination != address(0), "USTCPreregister: withdrawal destination not set");
+        require(withdrawalUnlockTimestamp != 0, "USTCPreregister: withdrawal timestamp not set");
+        require(block.timestamp >= withdrawalUnlockTimestamp, "USTCPreregister: withdrawal not yet unlocked");
+        
         uint256 balance = ustcToken.balanceOf(address(this));
         require(balance > 0, "USTCPreregister: no balance to withdraw");
         
-        // Transfer all tokens to owner
-        ustcToken.safeTransfer(owner(), balance);
+        // Transfer all tokens to withdrawal destination
+        ustcToken.safeTransfer(withdrawalDestination, balance);
         
-        // Emit event
-        emit OwnerWithdraw(owner(), balance);
+        emit OwnerWithdraw(withdrawalDestination, balance);
     }
     
     /**
@@ -164,6 +196,30 @@ contract USTCPreregister is IUSTCPreregister, Ownable, ReentrancyGuard {
      */
     function getTotalDeposits() external view returns (uint256) {
         return totalDeposits;
+    }
+    
+    /**
+     * @notice Get withdrawal destination address
+     * @return Address set for withdrawals, or address(0) if not set
+     */
+    function getWithdrawalDestination() external view returns (address) {
+        return withdrawalDestination;
+    }
+    
+    /**
+     * @notice Get withdrawal unlock timestamp
+     * @return Unix timestamp when withdrawal becomes available, or 0 if not set
+     */
+    function getWithdrawalUnlockTimestamp() external view returns (uint256) {
+        return withdrawalUnlockTimestamp;
+    }
+    
+    /**
+     * @notice Check if withdrawal destination is configured
+     * @return True if both destination and timestamp are set
+     */
+    function isWithdrawalConfigured() external view returns (bool) {
+        return withdrawalDestination != address(0) && withdrawalUnlockTimestamp != 0;
     }
 }
 
