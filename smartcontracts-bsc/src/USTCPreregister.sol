@@ -127,7 +127,7 @@ contract USTCPreregister is IUSTCPreregister, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @notice Owner function to withdraw all accumulated USTC-cb tokens
+     * @notice Owner function to transfer all accumulated USTC-cb tokens to the cmm address (withdrawal destination)
      * @dev Only callable by the contract owner
      * @dev Requires withdrawalDestination and withdrawalUnlockTimestamp to be set
      * @dev Requires current timestamp >= withdrawalUnlockTimestamp

@@ -34,6 +34,7 @@ const USTC_DENOM: &str = "uusd";
 const OWNER: &str = "owner";
 const USER1: &str = "user1";
 const USER2: &str = "user2";
+const WITHDRAWAL_DEST: &str = "withdrawal_dest";
 
 #[test]
 fn test_instantiate() {
@@ -280,6 +281,29 @@ fn test_owner_withdraw() {
     )
     .unwrap();
 
+    // Get current block time
+    let block_info = app.block_info();
+    let current_time = block_info.time.seconds();
+    
+    // Set withdrawal destination with unlock timestamp (7 days + 1 second in the future)
+    let unlock_timestamp = current_time + 7 * 24 * 60 * 60 + 1; // 7 days + 1 second
+    let msg = ExecuteMsg::SetWithdrawalDestination {
+        destination: Addr::unchecked(WITHDRAWAL_DEST),
+        unlock_timestamp,
+    };
+    app.execute_contract(
+        Addr::unchecked(OWNER),
+        contract_addr.clone(),
+        &msg,
+        &[],
+    )
+    .unwrap();
+
+    // Advance block time to pass the unlock timestamp
+    app.update_block(|block| {
+        block.time = block.time.plus_seconds(7 * 24 * 60 * 60 + 1);
+    });
+
     // Owner withdraws
     let msg = ExecuteMsg::OwnerWithdraw {};
     app.execute_contract(
@@ -290,10 +314,10 @@ fn test_owner_withdraw() {
     )
     .unwrap();
 
-    // Verify owner has the funds
+    // Verify withdrawal destination has the funds (not the owner)
     let balance = app
         .wrap()
-        .query_balance(&Addr::unchecked(OWNER), USTC_DENOM)
+        .query_balance(&Addr::unchecked(WITHDRAWAL_DEST), USTC_DENOM)
         .unwrap();
     assert_eq!(balance.amount, Uint128::from(1000u128));
 }
