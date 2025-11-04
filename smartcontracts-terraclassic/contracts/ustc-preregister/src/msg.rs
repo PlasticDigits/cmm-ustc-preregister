@@ -11,6 +11,15 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     Deposit {},
     Withdraw { amount: Uint128 },
+    /// Owner-only function to withdraw all accumulated USTC tokens
+    /// 
+    /// Transfers all USTC tokens from the contract to the withdrawal destination
+    /// (set via SetWithdrawalDestination). Requires a 7-day timelock to have passed.
+    /// 
+    /// **Important**: This withdraws the contract balance but does NOT modify user
+    /// deposit records. User balances remain tracked for future token conversion.
+    /// This function can be called multiple times - after withdrawal, if users deposit
+    /// additional USTC, the owner can withdraw again (subject to timelock).
     OwnerWithdraw {},
     UpdateConfig { owner: Option<Addr> },
     /// Owner function to set withdrawal destination and unlock timestamp

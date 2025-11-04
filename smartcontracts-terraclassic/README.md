@@ -165,7 +165,9 @@ Sends native USTC tokens with the message.
   "owner_withdraw": {}
 }
 ```
-Only callable by the contract owner.
+Only callable by the contract owner. Withdraws all USTC tokens from the contract to the withdrawal destination (set via `SetWithdrawalDestination`). Requires a 7-day timelock to have passed.
+
+**Important**: This function can be called multiple times. After a withdrawal, if users deposit additional USTC, the owner can withdraw again (subject to timelock requirements). User deposit records are preserved for future token conversion.
 
 #### Update Config
 ```rust
@@ -267,13 +269,26 @@ This design supports 100k+ users efficiently and prevents gas issues from loadin
    - Refunds from other contracts
    - Any other mechanism that deposits USTC without using the `Deposit` function
 
-3. **Withdrawals**: When users withdraw, both `total_deposits` and the contract balance decrease. When the owner withdraws, only the contract balance decreases (not `total_deposits`), as the owner can withdraw any accumulated balance.
+3. **User Withdrawals**: When users withdraw, both `total_deposits` and the contract balance decrease.
+
+4. **Owner Withdrawals**: When the owner withdraws via `OwnerWithdraw`, only the contract balance decreases (not `total_deposits`). **This is intentional**: user deposit records remain in storage to enable future conversion to tokens in a separate contract. The owner can call `OwnerWithdraw` multiple times - after a withdrawal, if users deposit additional USTC, the owner can withdraw again (subject to timelock requirements).
 
 **Use Cases**:
 - `total_deposits`: Use this to track how much users have deposited through the contract interface
 - Contract balance (via queries): Use this to know the actual USTC amount available for owner withdrawal
+- User balances: Tracked in storage for future token conversion, independent of contract balance
 
 The `ValidateIndex` query can help verify that the sum of individual user deposits matches `total_deposits` for validation purposes.
+
+### Owner Withdrawal and User Balance Conversion
+
+The contract is designed to support a two-phase process:
+
+1. **Preregistration Phase**: Users deposit USTC tokens, which are tracked in the contract's storage. The owner can withdraw accumulated USTC tokens (subject to a 7-day timelock) while user deposit records remain intact.
+
+2. **Token Conversion Phase**: A future contract will read user deposit balances from this contract and issue tokens accordingly. User balances are preserved in storage specifically for this purpose, even after owner withdrawals.
+
+This design allows the owner to access funds while maintaining the deposit history needed for token conversion.
 
 ## Error Handling
 

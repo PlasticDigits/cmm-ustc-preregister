@@ -199,6 +199,15 @@ pub fn execute_withdraw(
 /// withdrawal destination address (set via SetWithdrawalDestination). The withdrawal
 /// is subject to a 7-day timelock: the unlock timestamp must be set and must have passed.
 /// 
+/// **Important Note**: This function withdraws the contract's USTC balance but does NOT
+/// modify user deposit records. User balances remain tracked in storage for future conversion
+/// to tokens in a separate contract. This allows the owner to withdraw funds while preserving
+/// the deposit history needed for token conversion.
+/// 
+/// This function can be called multiple times. After a withdrawal, if users deposit additional
+/// USTC, the owner can call this function again to withdraw the new balance (subject to the
+/// timelock requirements).
+/// 
 /// Requires:
 /// - Withdrawal destination must be set via SetWithdrawalDestination
 /// - Withdrawal unlock timestamp must be set and current time >= unlock timestamp

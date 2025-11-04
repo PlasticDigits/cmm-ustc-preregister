@@ -1276,5 +1276,93 @@ mod tests {
         assert_eq!(res.attributes[2].key, "amount");
         assert_eq!(res.attributes[2].value, "5000");
     }
+    
+    #[test]
+    fn test_owner_withdraw_multiple_times() {
+        let mut deps = mock_dependencies();
+        setup_contract(&mut deps);
+        
+        let mut env = mock_env();
+        let destination = Addr::unchecked("terra1destination");
+        let unlock_timestamp = env.block.time.seconds() + 7 * 24 * 60 * 60 + 1;
+        
+        // Set withdrawal destination
+        let info = mock_info(OWNER, &[]);
+        let msg = ExecuteMsg::SetWithdrawalDestination {
+            destination: destination.clone(),
+            unlock_timestamp,
+        };
+        execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        
+        // First deposit from user
+        let funds1 = coins(3000u128, USTC_DENOM);
+        let user_info = mock_info(USER1, &funds1);
+        execute(deps.as_mut(), env.clone(), user_info, ExecuteMsg::Deposit {}).unwrap();
+        
+        // Set up querier to return balance for first withdrawal
+        deps.querier.update_balance(
+            &env.contract.address,
+            coins(3000u128, USTC_DENOM),
+        );
+        
+        // Advance time past unlock timestamp
+        env.block.time = env.block.time.plus_seconds(7 * 24 * 60 * 60 + 2);
+        
+        // First owner withdraw
+        let msg = ExecuteMsg::OwnerWithdraw {};
+        let res1 = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        assert_eq!(res1.attributes[2].key, "amount");
+        assert_eq!(res1.attributes[2].value, "3000");
+        
+        // Verify user balance is still tracked (not modified by owner withdrawal)
+        let query_msg = QueryMsg::GetUserDeposit {
+            user: Addr::unchecked(USER1),
+        };
+        let res: crate::msg::GetUserDepositResponse = cosmwasm_std::from_json(
+            &query(deps.as_ref(), env.clone(), query_msg).unwrap()
+        ).unwrap();
+        assert_eq!(res.deposit, Uint128::from(3000u128));
+        
+        // Update querier balance to reflect withdrawal (balance is now 0)
+        deps.querier.update_balance(
+            &env.contract.address,
+            coins(0u128, USTC_DENOM),
+        );
+        
+        // User deposits more USTC after owner withdrawal
+        let funds2 = coins(2000u128, USTC_DENOM);
+        let user_info2 = mock_info(USER1, &funds2);
+        execute(deps.as_mut(), env.clone(), user_info2, ExecuteMsg::Deposit {}).unwrap();
+        
+        // Update querier balance to reflect new deposit
+        deps.querier.update_balance(
+            &env.contract.address,
+            coins(2000u128, USTC_DENOM),
+        );
+        
+        // Verify user balance increased
+        let query_msg = QueryMsg::GetUserDeposit {
+            user: Addr::unchecked(USER1),
+        };
+        let res: crate::msg::GetUserDepositResponse = cosmwasm_std::from_json(
+            &query(deps.as_ref(), env.clone(), query_msg).unwrap()
+        ).unwrap();
+        assert_eq!(res.deposit, Uint128::from(5000u128));
+        
+        // Second owner withdraw should succeed
+        let msg = ExecuteMsg::OwnerWithdraw {};
+        let res2 = execute(deps.as_mut(), env, info, msg).unwrap();
+        assert_eq!(res2.attributes[2].key, "amount");
+        assert_eq!(res2.attributes[2].value, "2000");
+        
+        // Verify user balance is still tracked after second withdrawal
+        let query_msg = QueryMsg::GetUserDeposit {
+            user: Addr::unchecked(USER1),
+        };
+        let res: crate::msg::GetUserDepositResponse = cosmwasm_std::from_json(
+            &query(deps.as_ref(), mock_env(), query_msg).unwrap()
+        ).unwrap();
+        assert_eq!(res.deposit, Uint128::from(5000u128));
+    }
 }
 

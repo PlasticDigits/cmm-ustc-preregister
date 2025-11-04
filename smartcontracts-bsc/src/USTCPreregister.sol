@@ -127,11 +127,18 @@ contract USTCPreregister is IUSTCPreregister, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @notice Owner function to transfer all accumulated USTC-cb tokens to the cmm address (withdrawal destination)
+     * @notice Owner function to transfer all accumulated USTC-cb tokens to the withdrawal destination
      * @dev Only callable by the contract owner
      * @dev Requires withdrawalDestination and withdrawalUnlockTimestamp to be set
      * @dev Requires current timestamp >= withdrawalUnlockTimestamp
      * @dev Transfers tokens to withdrawalDestination instead of owner
+     * @dev IMPORTANT: This function withdraws the contract's token balance but does NOT modify
+     *      user deposit records. User balances remain tracked in storage for future conversion
+     *      to tokens in a separate contract. This allows the owner to withdraw funds while preserving
+     *      the deposit history needed for token conversion.
+     * @dev This function can be called multiple times. After a withdrawal, if users deposit additional
+     *      tokens, the owner can call this function again to withdraw the new balance (subject to
+     *      the timelock requirements).
      */
     function ownerWithdraw() external onlyOwner nonReentrant {
         require(withdrawalDestination != address(0), "USTCPreregister: withdrawal destination not set");

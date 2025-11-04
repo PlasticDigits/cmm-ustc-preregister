@@ -126,8 +126,12 @@ Withdraw deposited USTC-cb tokens from the contract.
 Withdraw all accumulated USTC-cb tokens from the contract. Only callable by the contract owner.
 
 **Requirements**:
+- Withdrawal destination must be set via `setWithdrawalDestination`
+- Withdrawal unlock timestamp must be set and current time >= unlock timestamp
 - Contract must have a balance > 0
 - Caller must be the owner
+
+**Important**: This function withdraws the contract's token balance but does NOT modify user deposit records. User balances remain tracked in storage for future conversion to tokens in a separate contract. This function can be called multiple times - after a withdrawal, if users deposit additional tokens, the owner can withdraw again (subject to timelock requirements).
 
 **Events**: `OwnerWithdraw`
 
@@ -158,6 +162,19 @@ Returns the total amount of USTC-cb deposited across all users.
 - `ustcToken() → IERC20`: The USTC-cb token contract address
 - `deposits(address) → uint256`: Mapping of user address to deposit balance
 - `totalDeposits() → uint256`: Total amount deposited across all users
+
+## Owner Withdrawal and User Balance Conversion
+
+The contract is designed to support a two-phase process:
+
+1. **Preregistration Phase**: Users deposit USTC-cb tokens, which are tracked in the contract's storage. The owner can withdraw accumulated tokens (subject to a 7-day timelock) while user deposit records remain intact.
+
+2. **Token Conversion Phase**: A future contract will read user deposit balances from this contract and issue tokens accordingly. User balances are preserved in storage specifically for this purpose, even after owner withdrawals.
+
+**Important Notes**:
+- When the owner withdraws via `ownerWithdraw()`, only the contract's token balance decreases (not `totalDeposits` or individual user `deposits`). This is intentional.
+- User deposit records remain tracked for future token conversion, independent of contract balance.
+- The owner can call `ownerWithdraw()` multiple times - after a withdrawal, if users deposit additional tokens, the owner can withdraw again (subject to timelock requirements).
 
 ## Events
 
@@ -222,7 +239,7 @@ The test suite includes comprehensive coverage of:
 - ✅ Constructor initialization and validation
 - ✅ Deposit functionality (success, failures, multiple users)
 - ✅ Withdraw functionality (success, failures, partial/full withdrawals)
-- ✅ Owner withdrawal functionality
+- ✅ Owner withdrawal functionality (including multiple withdrawals)
 - ✅ User enumeration (count, index access, list retrieval)
 - ✅ Edge cases (zero deposits, many users, sequential operations)
 - ✅ Reentrancy protection verification

@@ -510,6 +510,73 @@ contract USTCPreregisterTest is Test {
         vm.stopPrank();
     }
     
+    function test_OwnerWithdraw_MultipleTimes() public {
+        address destination = address(0x100);
+        uint256 unlockTimestamp = block.timestamp + 7 days;
+        
+        // Set withdrawal destination
+        vm.startPrank(owner);
+        preregister.setWithdrawalDestination(destination, unlockTimestamp);
+        vm.stopPrank();
+        
+        // First deposit from user
+        vm.startPrank(user1);
+        mockToken.approve(address(preregister), DEPOSIT_AMOUNT);
+        preregister.deposit(DEPOSIT_AMOUNT);
+        vm.stopPrank();
+        
+        uint256 initialUserDeposit = preregister.deposits(user1);
+        uint256 initialTotalDeposits = preregister.totalDeposits();
+        assertEq(initialUserDeposit, DEPOSIT_AMOUNT);
+        assertEq(initialTotalDeposits, DEPOSIT_AMOUNT);
+        
+        // Fast forward time to unlock timestamp
+        vm.warp(unlockTimestamp);
+        
+        // First owner withdraw
+        uint256 contractBalance1 = mockToken.balanceOf(address(preregister));
+        uint256 destinationBalance1 = mockToken.balanceOf(destination);
+        
+        vm.startPrank(owner);
+        preregister.ownerWithdraw();
+        vm.stopPrank();
+        
+        // Verify tokens were transferred to destination
+        assertEq(mockToken.balanceOf(destination), destinationBalance1 + contractBalance1);
+        assertEq(mockToken.balanceOf(address(preregister)), 0);
+        
+        // Verify user balance is still tracked (not modified by owner withdrawal)
+        assertEq(preregister.deposits(user1), DEPOSIT_AMOUNT);
+        assertEq(preregister.totalDeposits(), DEPOSIT_AMOUNT);
+        
+        // User deposits more tokens after owner withdrawal
+        uint256 additionalAmount = SMALL_AMOUNT;
+        vm.startPrank(user1);
+        mockToken.approve(address(preregister), additionalAmount);
+        preregister.deposit(additionalAmount);
+        vm.stopPrank();
+        
+        // Verify user balance increased
+        assertEq(preregister.deposits(user1), DEPOSIT_AMOUNT + additionalAmount);
+        assertEq(preregister.totalDeposits(), DEPOSIT_AMOUNT + additionalAmount);
+        
+        // Second owner withdraw should succeed
+        uint256 contractBalance2 = mockToken.balanceOf(address(preregister));
+        uint256 destinationBalance2 = mockToken.balanceOf(destination);
+        
+        vm.startPrank(owner);
+        preregister.ownerWithdraw();
+        vm.stopPrank();
+        
+        // Verify tokens were transferred to destination
+        assertEq(mockToken.balanceOf(destination), destinationBalance2 + contractBalance2);
+        assertEq(mockToken.balanceOf(address(preregister)), 0);
+        
+        // Verify user balance is still tracked after second withdrawal
+        assertEq(preregister.deposits(user1), DEPOSIT_AMOUNT + additionalAmount);
+        assertEq(preregister.totalDeposits(), DEPOSIT_AMOUNT + additionalAmount);
+    }
+    
     // ============ Enumeration Tests ============
     
     function test_GetUserCount_ReturnsCorrectCount() public {
