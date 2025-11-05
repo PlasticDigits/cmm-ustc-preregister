@@ -12,7 +12,7 @@ const USTC_DENOM = 'uusd'; // microUSTC
 const GAS_PRICE_ULUNA = '28.325'; // uluna per gas unit
 const BASE_GAS_LIMIT = 200000; // Base gas for contract execution
 const DEPOSIT_GAS_LIMIT = 250000; // Gas for deposit (includes coin transfer)
-const WITHDRAW_GAS_LIMIT = 200000; // Gas for withdraw
+const WITHDRAW_GAS_LIMIT = 400000; // Gas for withdraw (increased due to WritePerByte and Delete operation costs)
 const OWNER_GAS_LIMIT = 150000; // Gas for owner operations
 
 /**
