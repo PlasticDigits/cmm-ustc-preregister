@@ -16,7 +16,7 @@ import { ethers } from 'ethers';
 
 export const BSCPage: React.FC = () => {
   const { address, isConnected, isCorrectNetwork, connect, disconnect, isConnecting, signer, error } = useBSCWallet();
-  const { contract, userDeposit, totalDeposits, userCount, deposit, withdraw, isDepositing, isWithdrawing, isOwner, isLoadingOwner, setWithdrawalDestination, isSettingWithdrawal, ownerWithdraw, isOwnerWithdrawing } = useBSCContract(signer);
+  const { contract, userDeposit, userDepositRaw, totalDeposits, userCount, deposit, withdraw, isDepositing, isWithdrawing, isOwner, isLoadingOwner, setWithdrawalDestination, isSettingWithdrawal, ownerWithdraw, isOwnerWithdrawing } = useBSCContract(signer);
   const { withdrawalInfo, timeRemaining, isUnlocked, isLoading: isLoadingWithdrawal } = useWithdrawalInfo('bsc', contract);
   const { showToast } = useToast();
   
@@ -32,6 +32,33 @@ export const BSCPage: React.FC = () => {
   const [withdrawalDestination, setWithdrawalDestinationInput] = useState('');
   const [unlockDays, setUnlockDays] = useState('7');
 
+  // Helper function to reload token balance and allowance
+  const reloadTokenData = async () => {
+    if (!signer || !address) return;
+    
+    try {
+      const provider = signer.provider;
+      if (!provider) return;
+      
+      const erc20Abi = [
+        'function balanceOf(address) view returns (uint256)',
+        'function allowance(address,address) view returns (uint256)'
+      ];
+      const tokenContract = new ethers.Contract(USTC_TOKEN_ADDRESS, erc20Abi, provider);
+      const [balance, allow] = await Promise.all([
+        tokenContract.balanceOf(address),
+        BSC_CONTRACT_ADDRESS ? tokenContract.allowance(address, BSC_CONTRACT_ADDRESS) : Promise.resolve(0)
+      ]);
+      setTokenBalanceRaw(balance);
+      setTokenBalance(formatBalance(balance));
+      if (BSC_CONTRACT_ADDRESS) {
+        setAllowance(formatBalance(allow));
+      }
+    } catch (err) {
+      console.error('Error reloading token data:', err);
+    }
+  };
+
   // Load token balance and allowance
   useEffect(() => {
     if (!isConnected || !address || !signer) return;
@@ -39,18 +66,7 @@ export const BSCPage: React.FC = () => {
     const loadTokenData = async () => {
       setLoadingBalance(true);
       try {
-        const provider = signer.provider;
-        if (!provider) return;
-        
-        const erc20Abi = ['function balanceOf(address) view returns (uint256)', 'function allowance(address,address) view returns (uint256)', 'function approve(address,uint256) returns (bool)'];
-        const tokenContract = new ethers.Contract(USTC_TOKEN_ADDRESS, erc20Abi, provider);
-        const balance = await tokenContract.balanceOf(address);
-        setTokenBalanceRaw(balance); // Store raw balance for max button precision
-        if (BSC_CONTRACT_ADDRESS) {
-          const allow = await tokenContract.allowance(address, BSC_CONTRACT_ADDRESS);
-          setAllowance(formatBalance(allow));
-        }
-        setTokenBalance(formatBalance(balance));
+        await reloadTokenData();
       } catch (err) {
         console.error('Error loading token data:', err);
       } finally {
@@ -92,13 +108,8 @@ export const BSCPage: React.FC = () => {
       await approveTx.wait();
       showToast('Token approval successful!', 'success');
       
-      // Reload allowance
-      const providerReadOnly = signer.provider;
-      if (providerReadOnly) {
-        const tokenContractReadOnly = new ethers.Contract(USTC_TOKEN_ADDRESS, erc20Abi, providerReadOnly);
-        const newAllowance = await tokenContractReadOnly.allowance(address, BSC_CONTRACT_ADDRESS);
-        setAllowance(formatBalance(newAllowance));
-      }
+      // Reload token balance and allowance
+      await reloadTokenData();
     } catch (err: any) {
       showToast(`Approval failed: ${err.message}`, 'error');
     } finally {
@@ -123,23 +134,8 @@ export const BSCPage: React.FC = () => {
       showToast('Deposit successful!', 'success');
       
       // Reload token balance and allowance after deposit
-      const provider = signer.provider;
-      if (provider) {
-        const erc20Abi = [
-          'function balanceOf(address) view returns (uint256)',
-          'function allowance(address,address) view returns (uint256)'
-        ];
-        const tokenContract = new ethers.Contract(USTC_TOKEN_ADDRESS, erc20Abi, provider);
-        const [balance, allow] = await Promise.all([
-          tokenContract.balanceOf(address),
-          BSC_CONTRACT_ADDRESS ? tokenContract.allowance(address, BSC_CONTRACT_ADDRESS) : Promise.resolve(0)
-        ]);
-        setTokenBalanceRaw(balance); // Update raw balance
-        setTokenBalance(formatBalance(balance));
-        if (BSC_CONTRACT_ADDRESS) {
-          setAllowance(formatBalance(allow));
-        }
-      }
+      // Contract queries (userDeposit, totalDeposits, userCount) are automatically refetched by the mutation
+      await reloadTokenData();
     } catch (err: any) {
       // Only show error if it's not a user rejection
       const errorMessage = err.message || 'Unknown error';
@@ -161,6 +157,10 @@ export const BSCPage: React.FC = () => {
       await withdraw(withdrawAmount);
       setWithdrawAmount('');
       showToast('Withdraw successful!', 'success');
+      
+      // Reload token balance and allowance after withdraw
+      // Contract queries (userDeposit, totalDeposits, userCount) are automatically refetched by the mutation
+      await reloadTokenData();
     } catch (err: any) {
       showToast(`Withdraw failed: ${err.message}`, 'error');
     }
@@ -178,10 +178,13 @@ export const BSCPage: React.FC = () => {
   };
 
   const handleMaxWithdraw = () => {
-    // Use the userDeposit directly to preserve precision
-    // userDeposit is already formatted from formatTokenAmount, so we can use it as-is
-    if (userDeposit && parseFloat(userDeposit) > 0) {
-      setWithdrawAmount(userDeposit);
+    // Use the raw deposit converted to string with full precision
+    // This avoids any potential precision issues from formatting
+    if (userDepositRaw > 0n) {
+      // Convert raw deposit to string with full 18 decimal precision
+      const maxAmount = ethers.formatUnits(userDepositRaw, 18);
+      // Remove trailing zeros but keep full precision
+      setWithdrawAmount(maxAmount.replace(/\.?0+$/, ''));
     }
   };
 

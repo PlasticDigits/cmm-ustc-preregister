@@ -34,6 +34,18 @@ export function useBSCContract(signer: ethers.JsonRpcSigner | null) {
     refetchInterval: 10000,
   });
 
+  // Get raw user deposit for precision (bigint)
+  const userDepositRaw = useQuery({
+    queryKey: ['bsc', 'userDepositRaw', userAddress],
+    queryFn: async () => {
+      if (!contract || !userAddress) return null;
+      const deposit = await contract.getUserDeposit(userAddress);
+      return deposit;
+    },
+    enabled: !!contract && !!signer,
+    refetchInterval: 10000,
+  });
+
   // Get total deposits
   const totalDeposits = useQuery({
     queryKey: ['bsc', 'totalDeposits'],
@@ -139,6 +151,7 @@ export function useBSCContract(signer: ethers.JsonRpcSigner | null) {
   return {
     contract,
     userDeposit: userDeposit.data || '0',
+    userDepositRaw: userDepositRaw.data || 0n, // Raw deposit for precision
     totalDeposits: totalDeposits.data || '0',
     userCount: userCount.data || 0,
     isLoading: userDeposit.isLoading || totalDeposits.isLoading || userCount.isLoading,
