@@ -19,7 +19,7 @@ cosmwasm-std = { version = "1.5.11", features = ["staking"] }
 schemars = "0.8.15"
 serde = { version = "1.0.188", default-features = false, features = ["derive"] }
 thiserror = "1.0.4"
-base64ct = "1.7.3"
+base64ct = "=1.7.3"
 
 [dev-dependencies]
 cw-multi-test = "1.0.0"
