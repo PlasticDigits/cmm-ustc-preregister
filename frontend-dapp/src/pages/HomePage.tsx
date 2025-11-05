@@ -30,11 +30,10 @@ export const HomePage: React.FC = () => {
       >
         <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'center', gap: '1rem' }}>
           <Image
-            src="/USTC.png"
-            alt="USTC Logo"
-            width={80}
-            height={80}
-            style={{ borderRadius: '50%' }}
+            src="/logo-bg-transparent.svg"
+            alt="USTC Preregister Logo"
+            width={120}
+            height={120}
           />
         </div>
         <h1 className="gradient-text" style={{

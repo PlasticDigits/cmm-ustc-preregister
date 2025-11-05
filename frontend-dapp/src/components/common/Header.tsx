@@ -53,6 +53,11 @@ export const Header: React.FC<HeaderProps> = ({
       gap: '1rem',
     }}>
       <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <img 
+          src="/logo-bg-transparent.svg" 
+          alt="USTC Preregister Logo" 
+          style={{ height: '2rem', width: 'auto' }}
+        />
         <h1 style={{ color: 'var(--gold-primary)', margin: 0, fontSize: 'clamp(1.25rem, 4vw, 1.5rem)', fontWeight: 700 }}>USTC Preregister</h1>
       </Link>
       
