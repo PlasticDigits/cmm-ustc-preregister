@@ -7,7 +7,15 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      buffer: 'buffer',
+      process: 'process/browser',
+      util: 'util',
+      stream: 'stream-browserify',
     },
+  },
+  define: {
+    'global': 'window',
+    'process.env': '{}',
   },
   build: {
     outDir: 'dist',
@@ -24,5 +32,12 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      define: {
+        global: 'globalThis',
+      },
+    },
   },
 })

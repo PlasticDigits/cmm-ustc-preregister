@@ -9,6 +9,7 @@ import { useToast } from '@/contexts/ToastContext';
 interface HeaderProps {
   network?: string;
   walletAddress?: string;
+  walletStatus?: 'owner' | 'public';
   onConnect?: () => void;
   onDisconnect?: () => void;
 }
@@ -16,6 +17,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   network,
   walletAddress,
+  walletStatus,
   onConnect,
   onDisconnect,
 }) => {
@@ -30,7 +32,7 @@ export const Header: React.FC<HeaderProps> = ({
       setCopied(true);
       showToast('Wallet address copied to clipboard!', 'success', 2000);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
+    } catch {
       showToast('Failed to copy address', 'error');
     }
   };
@@ -58,6 +60,12 @@ export const Header: React.FC<HeaderProps> = ({
         {network && (
           <Badge variant="secondary" size="md">
             {network}
+          </Badge>
+        )}
+        
+        {walletStatus && (
+          <Badge variant={walletStatus === 'owner' ? 'primary' : 'info'} size="md">
+            {walletStatus === 'owner' ? 'Owner' : 'Public'}
           </Badge>
         )}
         

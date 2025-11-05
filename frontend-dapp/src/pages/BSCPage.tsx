@@ -11,12 +11,12 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { useToast } from '@/contexts/ToastContext';
 import { validateAmount } from '@/utils/validation';
 import { formatBalance, formatTimeRemaining, formatAddress } from '@/utils/format';
-import { USTC_TOKEN_ADDRESS } from '@/utils/constants';
+import { USTC_TOKEN_ADDRESS, BSC_CONTRACT_ADDRESS } from '@/utils/constants';
 import { ethers } from 'ethers';
 
 export const BSCPage: React.FC = () => {
-  const { address, isConnected, isCorrectNetwork, connect, disconnect, isConnecting, signer } = useBSCWallet();
-  const { contract, userDeposit, totalDeposits, userCount, deposit, withdraw, isDepositing, isWithdrawing } = useBSCContract(signer);
+  const { address, isConnected, isCorrectNetwork, connect, disconnect, isConnecting, signer, error } = useBSCWallet();
+  const { contract, userDeposit, totalDeposits, userCount, deposit, withdraw, isDepositing, isWithdrawing, isOwner, isLoadingOwner, setWithdrawalDestination, isSettingWithdrawal, ownerWithdraw, isOwnerWithdrawing } = useBSCContract(signer);
   const { withdrawalInfo, timeRemaining, isUnlocked, isLoading: isLoadingWithdrawal } = useWithdrawalInfo('bsc', contract);
   const { showToast } = useToast();
   
@@ -25,6 +25,11 @@ export const BSCPage: React.FC = () => {
   const [tokenBalance, setTokenBalance] = useState<string>('0');
   const [allowance, setAllowance] = useState<string>('0');
   const [loadingBalance, setLoadingBalance] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  
+  // Owner-only state
+  const [withdrawalDestination, setWithdrawalDestinationInput] = useState('');
+  const [unlockDays, setUnlockDays] = useState('7');
 
   // Load token balance and allowance
   useEffect(() => {
@@ -39,9 +44,8 @@ export const BSCPage: React.FC = () => {
         const erc20Abi = ['function balanceOf(address) view returns (uint256)', 'function allowance(address,address) view returns (uint256)', 'function approve(address,uint256) returns (bool)'];
         const tokenContract = new ethers.Contract(USTC_TOKEN_ADDRESS, erc20Abi, provider);
         const balance = await tokenContract.balanceOf(address);
-        const contractAddress = import.meta.env.VITE_BSC_CONTRACT_ADDRESS;
-        if (contractAddress) {
-          const allow = await tokenContract.allowance(address, contractAddress);
+        if (BSC_CONTRACT_ADDRESS) {
+          const allow = await tokenContract.allowance(address, BSC_CONTRACT_ADDRESS);
           setAllowance(formatBalance(allow));
         }
         setTokenBalance(formatBalance(balance));
@@ -55,6 +59,51 @@ export const BSCPage: React.FC = () => {
     loadTokenData();
   }, [isConnected, address, signer]);
 
+  const handleApprove = async () => {
+    const validation = validateAmount(depositAmount);
+    if (!validation.valid) {
+      showToast(validation.error || 'Invalid amount', 'error');
+      return;
+    }
+
+    if (!signer || !address) return;
+
+    try {
+      const provider = signer.provider;
+      if (!provider) return;
+      
+      const erc20Abi = [
+        'function approve(address,uint256) returns (bool)',
+        'function allowance(address,address) view returns (uint256)'
+      ];
+      const tokenContract = new ethers.Contract(USTC_TOKEN_ADDRESS, erc20Abi, signer);
+      const amountBN = ethers.parseUnits(depositAmount, 18);
+      
+      if (!BSC_CONTRACT_ADDRESS) {
+        showToast('Contract address not configured', 'error');
+        return;
+      }
+      
+      setIsApproving(true);
+      showToast('Approving token spend...', 'info');
+      const approveTx = await tokenContract.approve(BSC_CONTRACT_ADDRESS, amountBN);
+      await approveTx.wait();
+      showToast('Token approval successful!', 'success');
+      
+      // Reload allowance
+      const providerReadOnly = signer.provider;
+      if (providerReadOnly) {
+        const tokenContractReadOnly = new ethers.Contract(USTC_TOKEN_ADDRESS, erc20Abi, providerReadOnly);
+        const newAllowance = await tokenContractReadOnly.allowance(address, BSC_CONTRACT_ADDRESS);
+        setAllowance(formatBalance(newAllowance));
+      }
+    } catch (err: any) {
+      showToast(`Approval failed: ${err.message}`, 'error');
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
   const handleDeposit = async () => {
     const validation = validateAmount(depositAmount);
     if (!validation.valid) {
@@ -62,36 +111,31 @@ export const BSCPage: React.FC = () => {
       return;
     }
 
-    if (!signer) return;
+    if (!signer || !address) return;
 
     try {
-      // First check if approval is needed
-      const provider = signer.provider;
-      if (!provider) return;
-      
-      const erc20Abi = ['function approve(address,uint256) returns (bool)'];
-      const tokenContract = new ethers.Contract(USTC_TOKEN_ADDRESS, erc20Abi, signer);
-      const amountBN = ethers.parseUnits(depositAmount, 18);
-      const contractAddress = import.meta.env.VITE_BSC_CONTRACT_ADDRESS;
-      
-      if (!contractAddress) {
-        showToast('Contract address not configured', 'error');
-        return;
-      }
-      
-      // Check allowance
-      const currentAllowance = await tokenContract.allowance(address, contractAddress);
-      if (currentAllowance < amountBN) {
-        showToast('Approving token spend...', 'info');
-        const approveTx = await tokenContract.approve(contractAddress, amountBN);
-        await approveTx.wait();
-        showToast('Token approval successful!', 'success');
-      }
-
       showToast('Processing deposit...', 'info');
       await deposit(depositAmount);
       setDepositAmount('');
       showToast('Deposit successful!', 'success');
+      
+      // Reload token balance and allowance after deposit
+      const provider = signer.provider;
+      if (provider) {
+        const erc20Abi = [
+          'function balanceOf(address) view returns (uint256)',
+          'function allowance(address,address) view returns (uint256)'
+        ];
+        const tokenContract = new ethers.Contract(USTC_TOKEN_ADDRESS, erc20Abi, provider);
+        const [balance, allow] = await Promise.all([
+          tokenContract.balanceOf(address),
+          BSC_CONTRACT_ADDRESS ? tokenContract.allowance(address, BSC_CONTRACT_ADDRESS) : Promise.resolve(0)
+        ]);
+        setTokenBalance(formatBalance(balance));
+        if (BSC_CONTRACT_ADDRESS) {
+          setAllowance(formatBalance(allow));
+        }
+      }
     } catch (err: any) {
       showToast(`Deposit failed: ${err.message}`, 'error');
     }
@@ -128,6 +172,66 @@ export const BSCPage: React.FC = () => {
     }
   };
 
+  // Check if approval is needed
+  const needsApproval = () => {
+    const depositAmt = parseFloat(depositAmount);
+    const allowAmt = parseFloat(allowance);
+    return !isNaN(depositAmt) && !isNaN(allowAmt) && depositAmt > allowAmt;
+  };
+
+  // Owner: Handle setting withdrawal destination
+  const handleSetWithdrawalDestination = async () => {
+    if (!withdrawalDestination || !unlockDays) {
+      showToast('Please fill in all fields', 'error');
+      return;
+    }
+
+    // Validate address
+    if (!ethers.isAddress(withdrawalDestination)) {
+      showToast('Invalid destination address', 'error');
+      return;
+    }
+
+    // Validate days (must be at least 7)
+    const days = parseInt(unlockDays);
+    if (isNaN(days) || days < 7) {
+      showToast('Unlock time must be at least 7 days', 'error');
+      return;
+    }
+
+    try {
+      const unlockTimestamp = Math.floor(Date.now() / 1000) + (days * 24 * 60 * 60);
+      showToast('Setting withdrawal destination...', 'info');
+      await setWithdrawalDestination({ destination: withdrawalDestination, unlockTimestamp });
+      setWithdrawalDestinationInput('');
+      setUnlockDays('7');
+      showToast('Withdrawal destination set successfully!', 'success');
+    } catch (err: any) {
+      showToast(`Failed to set withdrawal destination: ${err.message}`, 'error');
+    }
+  };
+
+  // Owner: Handle owner withdraw
+  const handleOwnerWithdraw = async () => {
+    if (!withdrawalInfo?.isConfigured) {
+      showToast('Withdrawal destination must be configured first', 'error');
+      return;
+    }
+
+    if (!isUnlocked) {
+      showToast('Withdrawal is not yet unlocked', 'error');
+      return;
+    }
+
+    try {
+      showToast('Processing owner withdrawal...', 'info');
+      await ownerWithdraw();
+      showToast('Owner withdrawal successful!', 'success');
+    } catch (err: any) {
+      showToast(`Owner withdrawal failed: ${err.message}`, 'error');
+    }
+  };
+
   if (!isConnected) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -140,6 +244,19 @@ export const BSCPage: React.FC = () => {
               <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
                 Please connect your MetaMask wallet to interact with the BSC contract.
               </p>
+              {error && (
+                <div style={{
+                  padding: '1rem',
+                  marginBottom: '1rem',
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid var(--error)',
+                  borderRadius: 'var(--radius-md)',
+                  color: 'var(--error)',
+                  fontSize: '0.9rem',
+                }}>
+                  {error}
+                </div>
+              )}
               <Button onClick={connect} loading={isConnecting}>
                 Connect Wallet
               </Button>
@@ -224,7 +341,12 @@ export const BSCPage: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Header network="BSC" walletAddress={address || undefined} onDisconnect={disconnect} />
+      <Header 
+        network="BSC" 
+        walletAddress={address || undefined} 
+        onDisconnect={disconnect}
+        walletStatus={isLoadingOwner ? undefined : (isOwner ? 'owner' : 'public')}
+      />
       
       <main style={{ flex: 1, padding: '2rem', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
         <div style={{ display: 'grid', gap: '2rem', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
@@ -303,8 +425,12 @@ export const BSCPage: React.FC = () => {
                   Balance: {tokenBalance} USTC | Allowance: {allowance} USTC
                 </p>
               )}
-              <Button onClick={handleDeposit} loading={isDepositing} disabled={!depositAmount}>
-                Deposit
+              <Button 
+                onClick={needsApproval() ? handleApprove : handleDeposit} 
+                loading={isApproving || isDepositing} 
+                disabled={!depositAmount}
+              >
+                {needsApproval() ? 'Approve' : 'Deposit'}
               </Button>
             </div>
           </Card>
@@ -331,6 +457,90 @@ export const BSCPage: React.FC = () => {
               </Button>
             </div>
           </Card>
+
+          {/* Owner-only Cards */}
+          {isOwner && (
+            <>
+              {/* Set Withdrawal Destination Card */}
+              <Card>
+                <h3 style={{ color: 'var(--gold-primary)', marginBottom: '1rem' }}>Set Withdrawal Destination</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <Input
+                    label="Destination Address"
+                    type="text"
+                    value={withdrawalDestination}
+                    onChange={(e) => setWithdrawalDestinationInput(e.target.value)}
+                    placeholder="0x..."
+                  />
+                  <Input
+                    label="Unlock Time (days, min 7)"
+                    type="number"
+                    value={unlockDays}
+                    onChange={(e) => setUnlockDays(e.target.value)}
+                    placeholder="7"
+                    min="7"
+                  />
+                  <Button 
+                    onClick={handleSetWithdrawalDestination} 
+                    loading={isSettingWithdrawal} 
+                    disabled={!withdrawalDestination || !unlockDays || parseInt(unlockDays) < 7}
+                  >
+                    Set Withdrawal Destination
+                  </Button>
+                </div>
+              </Card>
+
+              {/* Owner Withdraw Card */}
+              <Card>
+                <h3 style={{ color: 'var(--gold-primary)', marginBottom: '1rem' }}>Owner Withdraw</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {withdrawalInfo?.isConfigured ? (
+                    <>
+                      <div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Destination</p>
+                        <p style={{ color: 'var(--text-primary)', fontSize: '0.95rem', fontFamily: 'monospace' }}>
+                          {withdrawalInfo.destination ? formatAddress(withdrawalInfo.destination, 8, 6) : 'Not set'}
+                        </p>
+                      </div>
+                      {isUnlocked ? (
+                        <div>
+                          <p style={{ color: 'var(--success)', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>
+                            ✅ Ready to withdraw
+                          </p>
+                          <Button 
+                            onClick={handleOwnerWithdraw} 
+                            loading={isOwnerWithdrawing}
+                            variant="primary"
+                          >
+                            Withdraw All Tokens
+                          </Button>
+                        </div>
+                      ) : (
+                        <div>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Unlocks in</p>
+                          <p style={{ color: 'var(--gold-primary)', fontSize: '1.1rem', fontWeight: 600 }}>
+                            {formatTimeRemaining(timeRemaining)}
+                          </p>
+                          <Button 
+                            onClick={handleOwnerWithdraw} 
+                            loading={isOwnerWithdrawing}
+                            disabled={true}
+                            style={{ marginTop: '1rem' }}
+                          >
+                            Withdrawal Locked
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                      Please set withdrawal destination first
+                    </p>
+                  )}
+                </div>
+              </Card>
+            </>
+          )}
         </div>
       </main>
 

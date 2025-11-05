@@ -58,6 +58,18 @@ export function useBSCContract(signer: ethers.JsonRpcSigner | null) {
     refetchInterval: 10000,
   });
 
+  // Check if connected address is owner
+  const isOwner = useQuery({
+    queryKey: ['bsc', 'isOwner', userAddress],
+    queryFn: async () => {
+      if (!contract || !userAddress) return false;
+      const owner = await contract.owner();
+      return owner.toLowerCase() === userAddress.toLowerCase();
+    },
+    enabled: !!contract && !!userAddress,
+    refetchInterval: 10000,
+  });
+
   // Deposit mutation
   const deposit = useMutation({
     mutationFn: async (amount: string) => {
@@ -65,10 +77,14 @@ export function useBSCContract(signer: ethers.JsonRpcSigner | null) {
       const amountBN = parseTokenAmount(amount);
       const tx = await contract.deposit(amountBN);
       await tx.wait();
+      // Wait a bit for blockchain state to update
+      await new Promise(resolve => setTimeout(resolve, 1000));
       return tx.hash;
     },
     onSuccess: () => {
+      // Invalidate and refetch all BSC queries
       queryClient.invalidateQueries({ queryKey: ['bsc'] });
+      queryClient.refetchQueries({ queryKey: ['bsc'] });
     },
   });
 
@@ -79,10 +95,44 @@ export function useBSCContract(signer: ethers.JsonRpcSigner | null) {
       const amountBN = parseTokenAmount(amount);
       const tx = await contract.withdraw(amountBN);
       await tx.wait();
+      // Wait a bit for blockchain state to update
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return tx.hash;
+    },
+    onSuccess: () => {
+      // Invalidate and refetch all BSC queries
+      queryClient.invalidateQueries({ queryKey: ['bsc'] });
+      queryClient.refetchQueries({ queryKey: ['bsc'] });
+    },
+  });
+
+  // Owner: Set withdrawal destination mutation
+  const setWithdrawalDestination = useMutation({
+    mutationFn: async ({ destination, unlockTimestamp }: { destination: string; unlockTimestamp: number }) => {
+      if (!contract || !signer) throw new Error('Not connected');
+      const tx = await contract.setWithdrawalDestination(destination, unlockTimestamp);
+      await tx.wait();
+      await new Promise(resolve => setTimeout(resolve, 1000));
       return tx.hash;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bsc'] });
+      queryClient.refetchQueries({ queryKey: ['bsc'] });
+    },
+  });
+
+  // Owner: Owner withdraw mutation
+  const ownerWithdraw = useMutation({
+    mutationFn: async () => {
+      if (!contract || !signer) throw new Error('Not connected');
+      const tx = await contract.ownerWithdraw();
+      await tx.wait();
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return tx.hash;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bsc'] });
+      queryClient.refetchQueries({ queryKey: ['bsc'] });
     },
   });
 
@@ -98,6 +148,12 @@ export function useBSCContract(signer: ethers.JsonRpcSigner | null) {
     isWithdrawing: withdraw.isPending,
     depositError: deposit.error,
     withdrawError: withdraw.error,
+    isOwner: isOwner.data || false,
+    isLoadingOwner: isOwner.isLoading,
+    setWithdrawalDestination: setWithdrawalDestination.mutate,
+    isSettingWithdrawal: setWithdrawalDestination.isPending,
+    ownerWithdraw: ownerWithdraw.mutate,
+    isOwnerWithdrawing: ownerWithdraw.isPending,
   };
 }
 

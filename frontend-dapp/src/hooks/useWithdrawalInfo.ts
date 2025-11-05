@@ -1,23 +1,24 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { Contract, ethers } from 'ethers';
+import { getTerraClassicContract } from '@/services/terraclassic/contract';
 
 /**
  * Hook to fetch withdrawal information for timelocked withdrawals
  * @param chain - The blockchain network ('bsc' or 'terraclassic')
- * @param contract - The contract instance (can be null if not connected)
+ * @param contract - The contract instance (can be null if not connected, or TerraClassicContract for Terra Classic)
  * @returns Withdrawal info including destination, unlock timestamp, time remaining, and unlock status
  */
 export function useWithdrawalInfo(
   chain: 'bsc' | 'terraclassic',
-  contract: Contract | null
+  contract: Contract | any | null
 ) {
   const withdrawalInfo = useQuery({
     queryKey: [chain, 'withdrawalInfo'],
     queryFn: async () => {
-      if (!contract) return null;
-      
       if (chain === 'bsc') {
+        if (!contract) return null;
+        
         const [destination, timestamp, isConfigured] = await Promise.all([
           contract.getWithdrawalDestination(),
           contract.getWithdrawalUnlockTimestamp(),
@@ -30,16 +31,18 @@ export function useWithdrawalInfo(
           isConfigured,
         };
       } else {
-        // Terra Classic query - placeholder for now
-        // TODO: Implement when Terra Classic service is available
+        // Terra Classic query
+        const terraContract = contract || getTerraClassicContract();
+        const info = await terraContract.getWithdrawalInfo();
+        
         return {
-          destination: null,
-          unlockTimestamp: 0,
-          isConfigured: false,
+          destination: info.destination || null,
+          unlockTimestamp: info.unlock_timestamp || 0,
+          isConfigured: info.is_configured || false,
         };
       }
     },
-    enabled: !!contract,
+    enabled: chain === 'terraclassic' || !!contract,
     refetchInterval: 10000, // Refresh every 10 seconds
   });
   

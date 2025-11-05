@@ -143,6 +143,13 @@ const CONTRACT_ABI = [
     name: 'WithdrawalDestinationSet',
     type: 'event',
   },
+  {
+    inputs: [],
+    name: 'owner',
+    outputs: [{ name: '', type: 'address' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
 ] as const;
 
 export function getContract(signerOrProvider: ethers.Signer | ethers.Provider): Contract {
