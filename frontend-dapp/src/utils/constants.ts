@@ -1,7 +1,8 @@
 export const BSC_RPC_URL = import.meta.env.VITE_BSC_RPC_URL || 'https://bsc-dataseed.binance.org/';
 export const BSC_CONTRACT_ADDRESS = import.meta.env.VITE_BSC_CONTRACT_ADDRESS || '';
 export const TERRA_RPC_URL = import.meta.env.VITE_TERRA_RPC_URL || 'https://terra-classic-lcd.publicnode.com';
-export const TERRA_CONTRACT_ADDRESS = import.meta.env.VITE_TERRA_CONTRACT_ADDRESS || '';
+export const TERRA_CONTRACT_ADDRESS = import.meta.env.VITE_TERRA_CONTRACT_ADDRESS || 'terra1j4y03s9tly2qfu5hv5pfga9yls0ygjnl97cznvedw3ervh3t7ntqfl7q9z';
+export const TERRA_CONTRACT_CODE_ID = import.meta.env.VITE_TERRA_CONTRACT_CODE_ID || '10508';
 export const USTC_TOKEN_ADDRESS = import.meta.env.VITE_USTC_TOKEN_ADDRESS || '0xA4224f910102490Dc02AAbcBc6cb3c59Ff390055';
 export const BSC_CHAIN_ID = parseInt(import.meta.env.VITE_BSC_CHAIN_ID || '56', 10);
 
@@ -19,4 +20,10 @@ export const BSC_NETWORK_CONFIG = {
       ? 'https://bscscan.com'
       : 'https://testnet.bscscan.com',
   ],
+};
+
+export const TERRA_CONTRACT_CONFIG = {
+  address: TERRA_CONTRACT_ADDRESS,
+  codeId: TERRA_CONTRACT_CODE_ID,
+  rpcUrl: TERRA_RPC_URL,
 };

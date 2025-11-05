@@ -34,12 +34,13 @@ Frontend application for the USTC preregistration swap app, built with React, Ty
 npm install
 ```
 
-2. Create a `.env` file in the root directory:
+2. Create a `.env` file in the root directory (optional - defaults are set for Terra Classic):
 ```env
 VITE_BSC_RPC_URL=https://bsc-dataseed.binance.org/
 VITE_BSC_CONTRACT_ADDRESS=<your_deployed_contract_address>
 VITE_TERRA_RPC_URL=https://terra-classic-lcd.publicnode.com
-VITE_TERRA_CONTRACT_ADDRESS=<your_terra_contract_address>
+VITE_TERRA_CONTRACT_ADDRESS=terra1j4y03s9tly2qfu5hv5pfga9yls0ygjnl97cznvedw3ervh3t7ntqfl7q9z
+VITE_TERRA_CONTRACT_CODE_ID=10508
 VITE_USTC_TOKEN_ADDRESS=0xA4224f910102490Dc02AAbcBc6cb3c59Ff390055
 VITE_BSC_CHAIN_ID=56
 ```
@@ -85,8 +86,9 @@ The production build will be in the `dist/` directory.
 
 - `VITE_BSC_RPC_URL` - BSC RPC endpoint
 - `VITE_BSC_CONTRACT_ADDRESS` - Deployed BSC contract address
-- `VITE_TERRA_RPC_URL` - Terra Classic LCD endpoint
-- `VITE_TERRA_CONTRACT_ADDRESS` - Terra Classic contract address
+- `VITE_TERRA_RPC_URL` - Terra Classic LCD endpoint (default: `https://terra-classic-lcd.publicnode.com`)
+- `VITE_TERRA_CONTRACT_ADDRESS` - Terra Classic contract address (default: `terra1j4y03s9tly2qfu5hv5pfga9yls0ygjnl97cznvedw3ervh3t7ntqfl7q9z`)
+- `VITE_TERRA_CONTRACT_CODE_ID` - Terra Classic contract code ID (default: `10508`)
 - `VITE_USTC_TOKEN_ADDRESS` - USTC token address on BSC
 - `VITE_BSC_CHAIN_ID` - BSC chain ID (56 for mainnet, 97 for testnet)
 
