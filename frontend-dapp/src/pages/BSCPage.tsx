@@ -132,17 +132,74 @@ export const BSCPage: React.FC = () => {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <Header onConnect={connect} />
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Card>
-            <h2 style={{ color: 'var(--gold-primary)', marginBottom: '2rem' }}>Connect Your Wallet</h2>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
-              Please connect your MetaMask wallet to interact with the BSC contract.
-            </p>
-            <Button onClick={connect} loading={isConnecting}>
-              Connect Wallet
-            </Button>
-          </Card>
-        </div>
+        <main style={{ flex: 1, padding: '2rem', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
+          <div style={{ display: 'grid', gap: '2rem', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
+            {/* Connect Wallet Card */}
+            <Card>
+              <h2 style={{ color: 'var(--gold-primary)', marginBottom: '2rem' }}>Connect Your Wallet</h2>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
+                Please connect your MetaMask wallet to interact with the BSC contract.
+              </p>
+              <Button onClick={connect} loading={isConnecting}>
+                Connect Wallet
+              </Button>
+            </Card>
+
+            {/* Stats Card - visible even without wallet */}
+            <Card>
+              <h3 style={{ color: 'var(--gold-primary)', marginBottom: '1rem' }}>Contract Statistics</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Total Deposits</p>
+                  <p style={{ color: 'var(--cyan-primary)', fontSize: '1.5rem', fontWeight: 600 }}>
+                    {totalDeposits} USTC
+                  </p>
+                </div>
+                <div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Total Users</p>
+                  <p style={{ color: 'var(--cyan-primary)', fontSize: '1.5rem', fontWeight: 600 }}>
+                    {userCount}
+                  </p>
+                </div>
+              </div>
+            </Card>
+
+            {/* Withdrawal Status Card */}
+            <Card>
+              <h3 style={{ color: 'var(--gold-primary)', marginBottom: '1rem' }}>Withdrawal Status</h3>
+              {isLoadingWithdrawal ? (
+                <LoadingSpinner size="sm" />
+              ) : withdrawalInfo?.isConfigured ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Destination</p>
+                    <p style={{ color: 'var(--text-primary)', fontSize: '0.95rem', fontFamily: 'monospace' }}>
+                      {withdrawalInfo.destination ? formatAddress(withdrawalInfo.destination, 8, 6) : 'Not set'}
+                    </p>
+                  </div>
+                  {isUnlocked ? (
+                    <div>
+                      <p style={{ color: 'var(--success)', fontSize: '1rem', fontWeight: 600 }}>
+                        ✅ Ready to withdraw
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>Unlocks in</p>
+                      <p style={{ color: 'var(--gold-primary)', fontSize: '1.1rem', fontWeight: 600 }}>
+                        {formatTimeRemaining(timeRemaining)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  Withdrawal destination not yet configured
+                </p>
+              )}
+            </Card>
+          </div>
+        </main>
         <Footer />
       </div>
     );

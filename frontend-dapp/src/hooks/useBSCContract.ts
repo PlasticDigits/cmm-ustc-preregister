@@ -2,13 +2,15 @@ import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ethers } from 'ethers';
 import { getContract } from '@/services/bsc/contract';
+import { getProvider } from '@/services/bsc/provider';
 import { formatTokenAmount, parseTokenAmount } from '@/utils/format';
 
 export function useBSCContract(signer: ethers.JsonRpcSigner | null) {
   const queryClient = useQueryClient();
-  const provider = signer ? signer.provider : null;
+  const provider = signer ? signer.provider : getProvider();
   
-  const contract = signer && provider ? getContract(signer) : null;
+  // Create contract with signer if available, otherwise use read-only provider
+  const contract = provider ? getContract(signer || provider) : null;
 
   // Get user deposit
   const [userAddress, setUserAddress] = React.useState<string | null>(null);
