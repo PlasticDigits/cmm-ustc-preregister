@@ -11,6 +11,10 @@ The `USTCPreregister` contract allows users to:
 
 The contract owner can withdraw all accumulated tokens.
 
+## Public deployments
+
+BSC Mainnet: `0xe50DaD8c95dd7A43D792a040146EFaA4801d62B8`
+
 ## Features
 
 - ✅ Enumerable user list using OpenZeppelin's `EnumerableSet`
@@ -222,6 +226,34 @@ forge script script/Deploy.s.sol:DeployScript \
   -i 1 \
   --sender $DEPLOYER_ADDRESS
 ```
+
+### Verify Contract (if automatic verification fails)
+
+If automatic verification fails, you can verify manually:
+
+**Option 1: Using forge verify-contract**
+```bash
+forge verify-contract \
+  0xe50DaD8c95dd7A43D792a040146EFaA4801d62B8 \
+  src/USTCPreregister.sol:USTCPreregister \
+  --constructor-args $(cast abi-encode "constructor(address,address)" 0xA4224f910102490Dc02AAbcBc6cb3c59Ff390055 0x745A676C5c472b50B50e18D4b59e9AeEEc597046) \
+  --compiler-version 0.8.23 \
+  --optimizer-runs 200 \
+  --chain-id 56 \
+  --etherscan-api-key $ETHERSCAN_API_KEY \
+  --watch
+```
+
+**Option 2: Manual verification on BSCScan**
+1. Go to https://bscscan.com/address/0xe50DaD8c95dd7A43D792a040146EFaA4801d62B8#code
+2. Click "Contract" tab → "Verify and Publish"
+3. Select "Via Standard JSON Input" or "Via Solidity (Standard JSON Input)"
+4. Use these settings:
+   - Compiler Version: `0.8.23`
+   - Optimization: `Yes` with `200` runs
+   - EVM Version: `Default` or `Istanbul`
+   - Constructor Arguments: `000000000000000000000000a4224f910102490dc02aabcbc6cb3c59ff390055000000000000000000000000745a676c5c472b50b50e18d4b59e9aeeec597046`
+5. Upload the source code files (include all OpenZeppelin dependencies)
 
 ## Security Considerations
 
