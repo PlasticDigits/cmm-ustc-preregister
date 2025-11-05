@@ -23,6 +23,7 @@ export const BSCPage: React.FC = () => {
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [tokenBalance, setTokenBalance] = useState<string>('0');
+  const [tokenBalanceRaw, setTokenBalanceRaw] = useState<bigint>(0n); // Store raw balance for precision
   const [allowance, setAllowance] = useState<string>('0');
   const [loadingBalance, setLoadingBalance] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
@@ -44,6 +45,7 @@ export const BSCPage: React.FC = () => {
         const erc20Abi = ['function balanceOf(address) view returns (uint256)', 'function allowance(address,address) view returns (uint256)', 'function approve(address,uint256) returns (bool)'];
         const tokenContract = new ethers.Contract(USTC_TOKEN_ADDRESS, erc20Abi, provider);
         const balance = await tokenContract.balanceOf(address);
+        setTokenBalanceRaw(balance); // Store raw balance for max button precision
         if (BSC_CONTRACT_ADDRESS) {
           const allow = await tokenContract.allowance(address, BSC_CONTRACT_ADDRESS);
           setAllowance(formatBalance(allow));
@@ -115,6 +117,7 @@ export const BSCPage: React.FC = () => {
 
     try {
       showToast('Processing deposit...', 'info');
+      // await the async mutation which waits for transaction confirmation
       await deposit(depositAmount);
       setDepositAmount('');
       showToast('Deposit successful!', 'success');
@@ -131,13 +134,18 @@ export const BSCPage: React.FC = () => {
           tokenContract.balanceOf(address),
           BSC_CONTRACT_ADDRESS ? tokenContract.allowance(address, BSC_CONTRACT_ADDRESS) : Promise.resolve(0)
         ]);
+        setTokenBalanceRaw(balance); // Update raw balance
         setTokenBalance(formatBalance(balance));
         if (BSC_CONTRACT_ADDRESS) {
           setAllowance(formatBalance(allow));
         }
       }
     } catch (err: any) {
-      showToast(`Deposit failed: ${err.message}`, 'error');
+      // Only show error if it's not a user rejection
+      const errorMessage = err.message || 'Unknown error';
+      if (!errorMessage.includes('user rejected') && !errorMessage.includes('User denied')) {
+        showToast(`Deposit failed: ${errorMessage}`, 'error');
+      }
     }
   };
 
@@ -159,16 +167,21 @@ export const BSCPage: React.FC = () => {
   };
 
   const handleMaxDeposit = () => {
-    const maxAmount = parseFloat(tokenBalance);
-    if (maxAmount > 0) {
-      setDepositAmount(maxAmount.toString());
+    // Use the raw balance converted to string with full precision
+    // This avoids rounding errors from formatBalance
+    if (tokenBalanceRaw > 0n) {
+      // Convert raw balance to string with full 18 decimal precision
+      const maxAmount = ethers.formatUnits(tokenBalanceRaw, 18);
+      // Remove trailing zeros but keep full precision
+      setDepositAmount(maxAmount.replace(/\.?0+$/, ''));
     }
   };
 
   const handleMaxWithdraw = () => {
-    const maxAmount = parseFloat(userDeposit);
-    if (maxAmount > 0) {
-      setWithdrawAmount(maxAmount.toString());
+    // Use the userDeposit directly to preserve precision
+    // userDeposit is already formatted from formatTokenAmount, so we can use it as-is
+    if (userDeposit && parseFloat(userDeposit) > 0) {
+      setWithdrawAmount(userDeposit);
     }
   };
 
