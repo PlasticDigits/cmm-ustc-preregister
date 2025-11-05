@@ -14,6 +14,11 @@ The contract owner can:
 - Withdraw all accumulated USTC tokens
 - Update contract configuration
 
+## Public contract code IDs and instantiations
+
+TerraClassic Mainnet CodeID: 10508
+TerraClassic Mainnet Instantiation: terra1j4y03s9tly2qfu5hv5pfga9yls0ygjnl97cznvedw3ervh3t7ntqfl7q9z
+
 ## Project Structure
 
 ```
