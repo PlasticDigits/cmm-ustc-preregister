@@ -15,7 +15,7 @@ let wcInstance: WalletConnect | null = null;
 let connectedAddress: string | null = null;
 
 interface QRCodeModal {
-  open: (uri: string, cb: () => void) => void;
+  open: (uri: string) => void;
   close: () => void;
   onCancel: (callback: () => void) => void;
 }
@@ -31,7 +31,7 @@ function createQRCodeModal(): QRCodeModal {
     onCancel: (callback: () => void) => {
       cancelCallback = callback;
     },
-    open: (uri: string, _cb: () => void) => {
+    open: (uri: string) => {
       // Create modal overlay
       modalElement = document.createElement('div');
       modalElement.id = 'luncdash-qr-modal';
@@ -226,7 +226,7 @@ export async function connectLuncDash(): Promise<{ address: string }> {
   const doubleEncodedUri = encodeURIComponent(encodeURIComponent(wc.uri));
   const luncDashDeepLink = `luncdash://wallet_connect?payload%3D${doubleEncodedUri}`;
   console.log('[LuncDash] Deep link for QR:', luncDashDeepLink);
-  qrModal.open(luncDashDeepLink, () => {});
+  qrModal.open(luncDashDeepLink);
 
   // Wait for connection
   return new Promise((resolve, reject) => {
@@ -408,7 +408,13 @@ export function getLuncDashAddress(): string | null {
  * Check if LuncDash is connected
  */
 export function isLuncDashConnected(): boolean {
-  return wcInstance !== null && wcInstance.connected && connectedAddress !== null;
+  const isConnected = wcInstance !== null && wcInstance.connected && connectedAddress !== null;
+  
+  // Also check if session exists even if connected flag is false
+  const hasSession = wcInstance !== null && wcInstance.session !== null;
+  
+  // Return true if either connected flag is true OR we have a session with address
+  return isConnected || (hasSession && connectedAddress !== null);
 }
 
 /**
@@ -420,42 +426,77 @@ export function isLuncDashConnected(): boolean {
 export async function signAndBroadcastTx(
   msgs: unknown[],
   memo: string = '',
-  fee: { amount: Array<{ denom: string; amount: string }>; gas: string; gas_limit?: string }
+  fee: { amount: Array<{ denom: string; amount: string }>; gasLimit: string; payer?: string; granter?: string }
 ): Promise<string> {
-  if (!wcInstance || !wcInstance.connected) {
+  // If wcInstance is null but we have a stored session, try to restore it
+  if (!wcInstance) {
+    console.log('[LuncDash] wcInstance is null, attempting to restore session...');
+    const restored = await restoreLuncDashSession();
+    if (!restored) {
+      throw new Error('LuncDash is not connected');
+    }
+    console.log('[LuncDash] Session restored successfully');
+  }
+
+  // Check connection state
+  if (!wcInstance) {
+    throw new Error('LuncDash is not connected');
+  }
+
+  // If connected flag is false but we have a session, try to use it anyway
+  if (!wcInstance.connected && wcInstance.session && connectedAddress) {
+    console.log('[LuncDash] wcInstance.connected is false but session exists, attempting to use session');
+  } else if (!wcInstance.connected) {
     throw new Error('LuncDash is not connected');
   }
 
   const id = Date.now();
 
-  // Normalize fee structure - ensure gas_limit is present if gas is provided
-  const normalizedFee = {
-    ...fee,
-    gas_limit: fee.gas_limit || fee.gas,
-  };
-
   console.log('[LuncDash] Sending transaction');
   console.log('[LuncDash] msgs:', JSON.stringify(msgs, null, 2));
-  console.log('[LuncDash] fee:', JSON.stringify(normalizedFee, null, 2));
+  console.log('[LuncDash] fee:', JSON.stringify(fee, null, 2));
   console.log('[LuncDash] memo:', memo);
 
-  // Try multiple method names and formats that LuncDash might support
-  // Start with 'post' as it's the most common for Terra wallets
-  const methods = ['post', 'terra_sign', 'terra_signTx'];
+  // Convert fee to the format expected by WalletConnect
+  const walletConnectFee = {
+    amount: fee.amount,
+    gasLimit: fee.gasLimit,
+    payer: fee.payer || '',
+    granter: fee.granter || '',
+  };
+
+  // The browser wallet format wraps msgs and memo in a transaction object:
+  // { msgs: [...], memo: "" }
+  // Then fee is passed separately
+  const txObject = {
+    msgs: msgs,
+    memo: memo,
+  };
+
+  // Try multiple param formats that LuncDash might accept
+  const paramFormats = [
+    // Format 1: Transaction object + fee (matches browser wallet structure)
+    { name: 'tx object + fee', params: [txObject, walletConnectFee] },
+    // Format 2: Single combined object
+    { name: 'combined object', params: [{ ...txObject, fee: walletConnectFee }] },
+    // Format 3: Separate params [msgs, fee, memo] (original Terra format)
+    { name: 'separate params', params: [msgs, walletConnectFee, memo] },
+  ];
+
   let lastError: Error | null = null;
-  
-  for (const method of methods) {
-    // Try format 1: [msgs, fee, memo] - standard Terra WalletConnect format
+
+  for (const format of paramFormats) {
     try {
-      console.log(`[LuncDash] Trying method: ${method} with format [msgs, fee, memo]`);
+      console.log(`[LuncDash] Trying "post" method with format: ${format.name}`);
+      console.log('[LuncDash] Params:', JSON.stringify(format.params, null, 2));
       
       const result = await wcInstance.sendCustomRequest({
-        id: id + methods.indexOf(method),
-        method,
-        params: [msgs, normalizedFee, memo],
+        id: id + paramFormats.indexOf(format),
+        method: 'post',
+        params: format.params,
       });
 
-      console.log(`[LuncDash] Transaction result for ${method}:`, result);
+      console.log('[LuncDash] Transaction result:', result);
 
       if (result && result.txhash) {
         return result.txhash;
@@ -469,68 +510,31 @@ export async function signAndBroadcastTx(
         return result;
       }
 
-      // If we got a result but it's not a hash, log and continue
-      console.log(`[LuncDash] Got result but not a hash format, trying next method`);
-    } catch (format1Error: unknown) {
-      console.log(`[LuncDash] Format 1 failed for ${method}:`, format1Error);
-      lastError = format1Error instanceof Error ? format1Error : new Error(String(format1Error));
+      console.log('[LuncDash] Got result but not a hash format, trying next format');
+    } catch (err: unknown) {
+      console.log(`[LuncDash] Format "${format.name}" failed:`, err);
+      lastError = err instanceof Error ? err : new Error(String(err));
       
-      // Try format 2: Single object with all transaction details
-      try {
-        console.log(`[LuncDash] Trying method: ${method} with format [txObject]`);
-        
-        const result = await wcInstance.sendCustomRequest({
-          id: id + methods.indexOf(method) + 100,
-          method,
-          params: [{
-            msgs,
-            fee: normalizedFee,
-            memo,
-            chain_id: TERRA_CLASSIC_CHAIN_ID,
-          }],
-        });
-
-        console.log(`[LuncDash] Transaction result for ${method} (format 2):`, result);
-
-        if (result && result.txhash) {
-          return result.txhash;
-        }
-
-        if (result && result.txHash) {
-          return result.txHash;
-        }
-
-        if (typeof result === 'string' && result.length === 64) {
-          return result;
-        }
-      } catch (format2Error: unknown) {
-        console.log(`[LuncDash] Format 2 also failed for ${method}:`, format2Error);
-        lastError = format2Error instanceof Error ? format2Error : new Error(String(format2Error));
+      // Check if it's a user rejection - stop trying other formats
+      const errorMsg = lastError.message.toLowerCase();
+      if (
+        errorMsg.includes('user rejected') ||
+        errorMsg.includes('rejected') ||
+        errorMsg.includes('user denied') ||
+        errorMsg.includes('cancelled') ||
+        errorMsg.includes('canceled')
+      ) {
+        throw new Error('Transaction rejected by user');
       }
+      
+      // Continue to next format
     }
   }
 
-  // If we get here, all methods failed
-  console.error('[LuncDash] All transaction methods failed');
+  // All formats failed
+  console.error('[LuncDash] All transaction formats failed');
   
   if (lastError) {
-    // Check if it's a user rejection
-    const errorMsg = lastError.message.toLowerCase();
-    if (
-      errorMsg.includes('user rejected') ||
-      errorMsg.includes('rejected') ||
-      errorMsg.includes('user denied') ||
-      errorMsg.includes('cancelled') ||
-      errorMsg.includes('canceled')
-    ) {
-      throw new Error('Transaction rejected by user');
-    }
-    
-    // Check for the specific LuncDash error
-    if (errorMsg.includes('not available') || errorMsg.includes('transaction is not available')) {
-      throw new Error('Transaction format may be incompatible with LuncDash. Please check the console for details.');
-    }
-    
     // Try to parse JSON error messages
     try {
       const parsed = JSON.parse(lastError.message);
@@ -540,7 +544,207 @@ export async function signAndBroadcastTx(
     }
   }
   
-  throw new Error('No transaction hash returned from any method');
+  throw new Error('No transaction hash returned from any format');
+}
+
+/**
+ * Test a specific transaction format and method via LuncDash
+ * @param testIndex - Index of the test combination (method + format)
+ * @param senderAddress - The sender's address
+ */
+export async function testTransactionFormat(
+  testIndex: number,
+  senderAddress: string
+): Promise<string> {
+  // If wcInstance is null but we have a stored session, try to restore it
+  if (!wcInstance) {
+    const restored = await restoreLuncDashSession();
+    if (!restored) {
+      throw new Error('LuncDash is not connected');
+    }
+  }
+
+  if (!wcInstance) {
+    throw new Error('LuncDash is not connected');
+  }
+
+  if (!wcInstance.connected && wcInstance.session && connectedAddress) {
+    console.log('[LuncDash] Using session despite connected flag being false');
+  } else if (!wcInstance.connected) {
+    throw new Error('LuncDash is not connected');
+  }
+
+  const id = Date.now();
+
+  // Fee with gas
+  const fee = {
+    amount: [{ denom: 'uluna', amount: '50000' }],
+    gas: '100000',
+  };
+
+  // Simple bank send message (1 uluna to self - minimal test)
+  const bankSendMsg = {
+    type: 'bank/MsgSend',
+    value: {
+      from_address: senderAddress,
+      to_address: senderAddress, // Send to self
+      amount: [{ denom: 'uluna', amount: '1' }],
+    },
+  };
+
+  // Alternative bank send format
+  const bankSendMsg2 = {
+    type: 'cosmos-sdk/MsgSend',
+    value: {
+      from_address: senderAddress,
+      to_address: senderAddress,
+      amount: [{ denom: 'uluna', amount: '1' }],
+    },
+  };
+
+  // Contract execute message
+  const contractMsg = {
+    type: 'wasm/MsgExecuteContract',
+    value: {
+      sender: senderAddress,
+      contract: 'terra1j4y03s9tly2qfu5hv5pfga9yls0ygjnl97cznvedw3ervh3t7ntqfl7q9z',
+      msg: { deposit: {} },
+      funds: [{ denom: 'uusd', amount: '50000000' }],
+    },
+  };
+
+  // Contract execute with base64 encoded msg
+  const contractMsgBase64 = {
+    type: 'wasm/MsgExecuteContract',
+    value: {
+      sender: senderAddress,
+      contract: 'terra1j4y03s9tly2qfu5hv5pfga9yls0ygjnl97cznvedw3ervh3t7ntqfl7q9z',
+      msg: btoa(JSON.stringify({ deposit: {} })),
+      funds: [{ denom: 'uusd', amount: '50000000' }],
+    },
+  };
+
+  // Define all test combinations
+  const testCombinations = [
+    // Test 0: Bank send (simple transfer) - format 1
+    { 
+      params: [{ msgs: [bankSendMsg], memo: '' }, fee], 
+      name: 'BANK SEND: {msgs,memo} + fee' 
+    },
+    // Test 1: Bank send - format 2 (combined)
+    { 
+      params: [{ msgs: [bankSendMsg], memo: '', fee }], 
+      name: 'BANK SEND: {msgs,memo,fee}' 
+    },
+    // Test 2: Bank send - format 3 (array)
+    { 
+      params: [[bankSendMsg], fee, ''], 
+      name: 'BANK SEND: [msgs, fee, memo]' 
+    },
+    // Test 3: Bank send cosmos-sdk type
+    { 
+      params: [{ msgs: [bankSendMsg2], memo: '', fee }], 
+      name: 'BANK SEND cosmos-sdk type' 
+    },
+    // Test 4: Contract execute - format 1
+    { 
+      params: [{ msgs: [contractMsg], memo: '' }, fee], 
+      name: 'CONTRACT: {msgs,memo} + fee' 
+    },
+    // Test 5: Contract execute - format 2
+    { 
+      params: [{ msgs: [contractMsg], memo: '', fee }], 
+      name: 'CONTRACT: {msgs,memo,fee}' 
+    },
+    // Test 6: Contract with base64 msg
+    { 
+      params: [{ msgs: [contractMsgBase64], memo: '', fee }], 
+      name: 'CONTRACT: base64 msg' 
+    },
+    // Test 7: Just message directly (no wrapper)
+    { 
+      params: [bankSendMsg], 
+      name: 'BANK SEND: raw message only' 
+    },
+    // Test 8: Message + fee only
+    { 
+      params: [bankSendMsg, fee], 
+      name: 'BANK SEND: msg + fee' 
+    },
+    // Test 9: Empty params to see what error we get
+    { 
+      params: [], 
+      name: 'EMPTY: see error response' 
+    },
+  ];
+
+  const test = testCombinations[testIndex];
+
+  if (!test) {
+    throw new Error(`Invalid test index: ${testIndex}. Valid: 0-${testCombinations.length - 1}`);
+  }
+
+  console.log(`[LuncDash] Test ${testIndex}: ${test.name}`);
+  console.log('[LuncDash] Method: post');
+  console.log('[LuncDash] Params:', JSON.stringify(test.params, null, 2));
+
+  try {
+    const result = await wcInstance.sendCustomRequest({
+      id,
+      method: 'post',
+      params: test.params,
+    });
+
+    console.log('[LuncDash] Transaction result:', result);
+
+    if (result && result.txhash) {
+      return result.txhash;
+    }
+
+    if (result && result.txHash) {
+      return result.txHash;
+    }
+
+    if (typeof result === 'string' && result.length === 64) {
+      return result;
+    }
+
+    // Log full result for debugging
+    console.log('[LuncDash] Full result object:', JSON.stringify(result, null, 2));
+    throw new Error(`Unexpected result: ${JSON.stringify(result)}`);
+  } catch (err: unknown) {
+    console.error(`[LuncDash] Test ${testIndex} failed:`, err);
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(String(err));
+  }
+}
+
+/**
+ * Get the number of available test combinations
+ */
+export function getTestCount(): number {
+  return 10;
+}
+
+/**
+ * Get test name by index
+ */
+export function getTestName(index: number): string {
+  const names = [
+    'BANK SEND: {msgs,memo} + fee',
+    'BANK SEND: {msgs,memo,fee}',
+    'BANK SEND: [msgs, fee, memo]',
+    'BANK SEND cosmos-sdk type',
+    'CONTRACT: {msgs,memo} + fee',
+    'CONTRACT: {msgs,memo,fee}',
+    'CONTRACT: base64 msg',
+    'BANK SEND: raw message only',
+    'BANK SEND: msg + fee',
+    'EMPTY: see error response',
+  ];
+  return names[index] || `Test ${index}`;
 }
 
 /**
@@ -575,9 +779,17 @@ export async function restoreLuncDashSession(): Promise<{ address: string } | nu
       session,
     });
 
-    if (wc.connected && wc.accounts.length > 0) {
+    // Restore if we have accounts, even if connected flag is false
+    // The session might still be valid for signing
+    if (wc.accounts && wc.accounts.length > 0) {
       wcInstance = wc;
       connectedAddress = wc.accounts[0];
+
+      console.log('[LuncDash] Session restored:', {
+        connected: wc.connected,
+        accounts: wc.accounts,
+        address: wc.accounts[0],
+      });
 
       // Handle disconnect
       wc.on('disconnect', () => {
@@ -587,6 +799,8 @@ export async function restoreLuncDashSession(): Promise<{ address: string } | nu
       });
 
       return { address: wc.accounts[0] };
+    } else {
+      console.log('[LuncDash] Session exists but no accounts found');
     }
   } catch (err) {
     console.error('Failed to restore LuncDash session:', err);

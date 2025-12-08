@@ -114,14 +114,17 @@ async function executeViaWalletConnect(
   const gasLimit = getGasLimitForTx(executeMsg);
   const feeAmount = Math.ceil(parseFloat(GAS_PRICE_ULUNA) * gasLimit);
 
-  // Some wallets expect gas_limit instead of gas, so provide both formats
+  // Use the same fee structure that cosmes uses for browser wallets
+  // Match the format: { amount: [{ denom, amount }], gasLimit: string, payer: "", granter: "" }
   const fee = {
     amount: [{ denom: 'uluna', amount: feeAmount.toString() }],
-    gas: gasLimit.toString(),
-    gas_limit: gasLimit.toString(), // Some wallets expect this field name
+    gasLimit: gasLimit.toString(),
+    payer: '',
+    granter: '',
   };
 
   // Sign and broadcast via WalletConnect
+  // Pass messages as a flat array (not double-wrapped)
   return await signAndBroadcast([aminoMsg], '', fee);
 }
 
@@ -138,21 +141,27 @@ export async function executeTerraContract(
   coins?: Array<{ denom: string; amount: string }>
 ): Promise<string> {
   // Check for LuncDash WalletConnect connection first
-  if (isLuncDashConnected()) {
-    const luncDashAddress = getLuncDashAddress();
-    if (luncDashAddress && luncDashAddress === walletAddress) {
-      console.log('[Transaction] Using LuncDash WalletConnect for signing');
-      try {
-        return await executeViaWalletConnect(
-          walletAddress,
-          executeMsg,
-          luncDashSignAndBroadcast,
-          coins
-        );
-      } catch (error: unknown) {
-        console.error('LuncDash transaction error:', error);
-        throw handleTransactionError(error);
-      }
+  const isLuncDash = isLuncDashConnected();
+  const luncDashAddress = getLuncDashAddress();
+  console.log('[Transaction] LuncDash connection check:', {
+    isLuncDashConnected: isLuncDash,
+    luncDashAddress,
+    walletAddress,
+    addressesMatch: luncDashAddress === walletAddress,
+  });
+
+  if (isLuncDash && luncDashAddress && luncDashAddress === walletAddress) {
+    console.log('[Transaction] Using LuncDash WalletConnect for signing');
+    try {
+      return await executeViaWalletConnect(
+        walletAddress,
+        executeMsg,
+        luncDashSignAndBroadcast,
+        coins
+      );
+    } catch (error: unknown) {
+      console.error('LuncDash transaction error:', error);
+      throw handleTransactionError(error);
     }
   }
 
@@ -194,6 +203,19 @@ export async function executeTerraContract(
       funds: coins && coins.length > 0 ? coins : [],
     });
 
+    // Log the message in Amino format (what cosmes sends to browser wallets)
+    const aminoMsg = msg.toAmino();
+    console.log('[Transaction] Browser wallet - Amino message:', JSON.stringify(aminoMsg, null, 2));
+    console.log('[Transaction] Browser wallet - Message type:', aminoMsg.type);
+    if (aminoMsg.value) {
+      console.log('[Transaction] Browser wallet - Message value:', {
+        sender: aminoMsg.value.sender,
+        contract: aminoMsg.value.contract,
+        msg: aminoMsg.value.msg,
+        funds: (aminoMsg.value as { funds?: Array<{ denom: string; amount: string }> }).funds || [],
+      });
+    }
+
     // Create unsigned transaction
     const unsignedTx: UnsignedTx = {
       msgs: [msg],
@@ -204,6 +226,24 @@ export async function executeTerraContract(
     // Terra Classic LCD returns 501 for /cosmos/tx/v1beta1/simulate endpoint
     const gasLimit = getGasLimitForTx(executeMsg);
     const fee = estimateTerraClassicFee(gasLimit);
+
+    // Log fee structure (what cosmes sends to browser wallets)
+    console.log('[Transaction] Browser wallet - Fee structure:', {
+      amount: fee.amount.map(a => ({ denom: a.denom, amount: a.amount })),
+      gasLimit: fee.gasLimit.toString(),
+      payer: fee.payer,
+      granter: fee.granter,
+    });
+    console.log('[Transaction] Browser wallet - UnsignedTx:', {
+      msgs: unsignedTx.msgs.map(m => {
+        const a = m.toAmino();
+        return {
+          type: a.type,
+          value: a.value,
+        };
+      }),
+      memo: unsignedTx.memo,
+    });
 
     // Broadcast transaction
     const txHash = await wallet.broadcastTx(unsignedTx, fee);

@@ -12,7 +12,7 @@ let wcInstance: WalletConnect | null = null;
 let connectedAddress: string | null = null;
 
 interface QRCodeModal {
-  open: (uri: string, cb: () => void) => void;
+  open: (uri: string) => void;
   close: () => void;
   onCancel: (callback: () => void) => void;
 }
@@ -41,7 +41,7 @@ function createQRCodeModal(): QRCodeModal {
     onCancel: (callback: () => void) => {
       cancelCallback = callback;
     },
-    open: (uri: string, _cb: () => void) => {
+    open: (uri: string) => {
       // Create modal overlay
       modalElement = document.createElement('div');
       modalElement.id = 'terrastation-qr-modal';
@@ -232,7 +232,7 @@ export async function connectTerraStation(): Promise<{ address: string }> {
   // Create the Firebase Dynamic Link for TerraStation
   const terraStationDeepLink = createTerraStationDeepLink(wc.uri);
   console.log('[TerraStation] Deep link for QR:', terraStationDeepLink);
-  qrModal.open(terraStationDeepLink, () => {});
+  qrModal.open(terraStationDeepLink);
 
   // Wait for connection
   return new Promise((resolve, reject) => {
@@ -389,7 +389,7 @@ export function isTerraStationConnected(): boolean {
 export async function signAndBroadcastTx(
   msgs: unknown[],
   memo: string = '',
-  fee: { amount: Array<{ denom: string; amount: string }>; gas: string; gas_limit?: string }
+  fee: { amount: Array<{ denom: string; amount: string }>; gasLimit: string; payer?: string; granter?: string }
 ): Promise<string> {
   if (!wcInstance || !wcInstance.connected) {
     throw new Error('TerraStation is not connected');
@@ -397,46 +397,97 @@ export async function signAndBroadcastTx(
 
   const id = Date.now();
 
-  // Try the standard Terra WalletConnect format with separate params
-  console.log('[TerraStation] Sending transaction with separate params format');
+  // Convert fee to the format expected by WalletConnect
+  const walletConnectFee = {
+    amount: fee.amount,
+    gasLimit: fee.gasLimit,
+    payer: fee.payer || '',
+    granter: fee.granter || '',
+  };
+
+  console.log('[TerraStation] Sending transaction');
   console.log('[TerraStation] msgs:', JSON.stringify(msgs, null, 2));
-  console.log('[TerraStation] fee:', JSON.stringify(fee, null, 2));
+  console.log('[TerraStation] fee:', JSON.stringify(walletConnectFee, null, 2));
+  console.log('[TerraStation] memo:', memo);
 
-  try {
-    const result = await wcInstance.sendCustomRequest({
-      id,
-      method: 'post',
-      params: [msgs, fee, memo],
-    });
+  // The browser wallet format wraps msgs and memo in a transaction object
+  const txObject = {
+    msgs: msgs,
+    memo: memo,
+  };
 
-    console.log('[TerraStation] Transaction result:', result);
+  // Try multiple param formats that TerraStation might accept
+  const paramFormats = [
+    // Format 1: Transaction object + fee (matches browser wallet structure)
+    { name: 'tx object + fee', params: [txObject, walletConnectFee] },
+    // Format 2: Single combined object
+    { name: 'combined object', params: [{ ...txObject, fee: walletConnectFee }] },
+    // Format 3: Separate params [msgs, fee, memo] (original Terra format)
+    { name: 'separate params', params: [msgs, walletConnectFee, memo] },
+  ];
 
-    if (result && result.txhash) {
-      return result.txhash;
-    }
+  let lastError: Error | null = null;
 
-    if (result && result.txHash) {
-      return result.txHash;
-    }
+  for (const format of paramFormats) {
+    try {
+      console.log(`[TerraStation] Trying "post" method with format: ${format.name}`);
+      console.log('[TerraStation] Params:', JSON.stringify(format.params, null, 2));
+      
+      const result = await wcInstance.sendCustomRequest({
+        id: id + paramFormats.indexOf(format),
+        method: 'post',
+        params: format.params,
+      });
 
-    if (typeof result === 'string' && result.length === 64) {
-      return result;
-    }
+      console.log('[TerraStation] Transaction result:', result);
 
-    console.error('[TerraStation] Unexpected result format:', result);
-    throw new Error('No transaction hash returned');
-  } catch (err: unknown) {
-    console.error('[TerraStation] Transaction error:', err);
-    if (err instanceof Error) {
-      try {
-        const parsed = JSON.parse(err.message);
-        throw new Error(parsed.message || err.message);
-      } catch {
-        throw new Error(err.message);
+      if (result && result.txhash) {
+        return result.txhash;
       }
+
+      if (result && result.txHash) {
+        return result.txHash;
+      }
+
+      if (typeof result === 'string' && result.length === 64) {
+        return result;
+      }
+
+      console.log('[TerraStation] Got result but not a hash format, trying next format');
+    } catch (err: unknown) {
+      console.log(`[TerraStation] Format "${format.name}" failed:`, err);
+      lastError = err instanceof Error ? err : new Error(String(err));
+      
+      // Check if it's a user rejection - stop trying other formats
+      const errorMsg = lastError.message.toLowerCase();
+      if (
+        errorMsg.includes('user rejected') ||
+        errorMsg.includes('rejected') ||
+        errorMsg.includes('user denied') ||
+        errorMsg.includes('cancelled') ||
+        errorMsg.includes('canceled')
+      ) {
+        throw new Error('Transaction rejected by user');
+      }
+      
+      // Continue to next format
     }
-    throw new Error('Unknown error during transaction');
   }
+
+  // All formats failed
+  console.error('[TerraStation] All transaction formats failed');
+  
+  if (lastError) {
+    // Try to parse JSON error messages
+    try {
+      const parsed = JSON.parse(lastError.message);
+      throw new Error(parsed.message || lastError.message);
+    } catch {
+      throw new Error(lastError.message || 'Unknown error during transaction');
+    }
+  }
+  
+  throw new Error('No transaction hash returned from any format');
 }
 
 /**
