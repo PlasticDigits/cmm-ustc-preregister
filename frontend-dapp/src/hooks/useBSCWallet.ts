@@ -22,8 +22,9 @@ export function useBSCWallet() {
       setSigner(sig);
       const network = await prov.getNetwork();
       setChainId(Number(network.chainId));
-    } catch (err: any) {
-      setError(err.message || 'Failed to connect wallet');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to connect wallet';
+      setError(errorMessage);
     } finally {
       setIsConnecting(false);
     }

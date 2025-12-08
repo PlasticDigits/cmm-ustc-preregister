@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useBSCWallet } from '@/hooks/useBSCWallet';
+import { useBSCWalletConnect } from '@/hooks/useBSCWalletConnect';
 import { useBSCContract } from '@/hooks/useBSCContract';
 import { useWithdrawalInfo } from '@/hooks/useWithdrawalInfo';
 import { Header } from '@/components/common/Header';
@@ -8,6 +9,7 @@ import { Card } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { Modal } from '@/components/common/Modal';
 import { useToast } from '@/contexts/ToastContext';
 import { validateAmount } from '@/utils/validation';
 import { formatBalance, formatTimeRemaining, formatAddress } from '@/utils/format';
@@ -15,7 +17,16 @@ import { USTC_TOKEN_ADDRESS, BSC_CONTRACT_ADDRESS } from '@/utils/constants';
 import { ethers } from 'ethers';
 
 export const BSCPage: React.FC = () => {
-  const { address, isConnected, isCorrectNetwork, connect, disconnect, isConnecting, signer, error } = useBSCWallet();
+  const { address: metamaskAddress, isConnected: isMetamaskConnected, isCorrectNetwork: isMetamaskCorrectNetwork, connect: connectMetamask, disconnect: disconnectMetamask, isConnecting: isMetamaskConnecting, signer: metamaskSigner, error: metamaskError } = useBSCWallet();
+  const { address: wcAddress, isConnected: isWCConnected, isCorrectNetwork: isWCCorrectNetwork, connect: connectWC, disconnect: disconnectWC, isConnecting: isWCConnecting, signer: wcSigner, error: wcError } = useBSCWalletConnect();
+  
+  // Use the active connection (prioritize MetaMask if both connected)
+  const address = metamaskAddress || wcAddress;
+  const isConnected = isMetamaskConnected || isWCConnected;
+  const isCorrectNetwork = isMetamaskCorrectNetwork || isWCCorrectNetwork;
+  const signer = metamaskSigner || wcSigner;
+  const error = metamaskError || wcError;
+  
   const { contract, userDeposit, userDepositRaw, totalDeposits, userCount, deposit, withdraw, isDepositing, isWithdrawing, isOwner, isLoadingOwner, setWithdrawalDestination, isSettingWithdrawal, ownerWithdraw, isOwnerWithdrawing } = useBSCContract(signer);
   const { withdrawalInfo, timeRemaining, isUnlocked, isLoading: isLoadingWithdrawal } = useWithdrawalInfo('bsc', contract);
   const { showToast } = useToast();
@@ -27,10 +38,54 @@ export const BSCPage: React.FC = () => {
   const [allowance, setAllowance] = useState<string>('0');
   const [loadingBalance, setLoadingBalance] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [showWarningModal, setShowWarningModal] = useState(false);
   
   // Owner-only state
   const [withdrawalDestination, setWithdrawalDestinationInput] = useState('');
   const [unlockDays, setUnlockDays] = useState('7');
+  
+  // Handle disconnect - disconnect both if needed
+  const disconnect = async () => {
+    if (isMetamaskConnected) {
+      await disconnectMetamask();
+    }
+    if (isWCConnected) {
+      await disconnectWC();
+    }
+  };
+  
+  // Handle WalletConnect connection with warning modal
+  const handleWalletConnectClick = () => {
+    setShowWarningModal(true);
+  };
+  
+  const handleWalletConnectConfirm = async () => {
+    setShowWarningModal(false);
+    try {
+      // Disconnect MetaMask if connected
+      if (isMetamaskConnected) {
+        await disconnectMetamask();
+      }
+      await connectWC();
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      showToast(`WalletConnect connection failed: ${errorMessage}`, 'error');
+    }
+  };
+  
+  // Handle MetaMask connection - disconnect WalletConnect if connected
+  const handleMetamaskConnect = async () => {
+    try {
+      // Disconnect WalletConnect if connected
+      if (isWCConnected) {
+        await disconnectWC();
+      }
+      await connectMetamask();
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      showToast(`MetaMask connection failed: ${errorMessage}`, 'error');
+    }
+  };
 
   // Helper function to reload token balance and allowance
   const reloadTokenData = async () => {
@@ -110,8 +165,9 @@ export const BSCPage: React.FC = () => {
       
       // Reload token balance and allowance
       await reloadTokenData();
-    } catch (err: any) {
-      showToast(`Approval failed: ${err.message}`, 'error');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      showToast(`Approval failed: ${errorMessage}`, 'error');
     } finally {
       setIsApproving(false);
     }
@@ -136,9 +192,9 @@ export const BSCPage: React.FC = () => {
       // Reload token balance and allowance after deposit
       // Contract queries (userDeposit, totalDeposits, userCount) are automatically refetched by the mutation
       await reloadTokenData();
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Only show error if it's not a user rejection
-      const errorMessage = err.message || 'Unknown error';
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       if (!errorMessage.includes('user rejected') && !errorMessage.includes('User denied')) {
         showToast(`Deposit failed: ${errorMessage}`, 'error');
       }
@@ -161,8 +217,9 @@ export const BSCPage: React.FC = () => {
       // Reload token balance and allowance after withdraw
       // Contract queries (userDeposit, totalDeposits, userCount) are automatically refetched by the mutation
       await reloadTokenData();
-    } catch (err: any) {
-      showToast(`Withdraw failed: ${err.message}`, 'error');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      showToast(`Withdraw failed: ${errorMessage}`, 'error');
     }
   };
 
@@ -222,8 +279,9 @@ export const BSCPage: React.FC = () => {
       setWithdrawalDestinationInput('');
       setUnlockDays('7');
       showToast('Withdrawal destination set successfully!', 'success');
-    } catch (err: any) {
-      showToast(`Failed to set withdrawal destination: ${err.message}`, 'error');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      showToast(`Failed to set withdrawal destination: ${errorMessage}`, 'error');
     }
   };
 
@@ -243,22 +301,23 @@ export const BSCPage: React.FC = () => {
       showToast('Processing owner withdrawal...', 'info');
       await ownerWithdraw();
       showToast('Owner withdrawal successful!', 'success');
-    } catch (err: any) {
-      showToast(`Owner withdrawal failed: ${err.message}`, 'error');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      showToast(`Owner withdrawal failed: ${errorMessage}`, 'error');
     }
   };
 
   if (!isConnected) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <Header onConnect={connect} />
+        <Header onConnect={handleMetamaskConnect} />
         <main style={{ flex: 1, padding: '2rem', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
           <div style={{ display: 'grid', gap: '2rem', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
             {/* Connect Wallet Card */}
             <Card>
               <h2 style={{ color: 'var(--gold-primary)', marginBottom: '2rem' }}>Connect Your Wallet</h2>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
-                Please connect your MetaMask wallet to interact with the BSC contract.
+                Please connect your wallet to interact with the BSC contract. We recommend using MetaMask browser extension.
               </p>
               {error && (
                 <div style={{
@@ -273,9 +332,14 @@ export const BSCPage: React.FC = () => {
                   {error}
                 </div>
               )}
-              <Button onClick={connect} loading={isConnecting}>
-                Connect Wallet
-              </Button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <Button onClick={handleMetamaskConnect} loading={isMetamaskConnecting}>
+                  Connect Wallet (MetaMask)
+                </Button>
+                <Button onClick={handleWalletConnectClick} loading={isWCConnecting} variant="secondary">
+                  WalletConnect
+                </Button>
+              </div>
             </Card>
 
             {/* Stats Card - visible even without wallet */}
@@ -333,6 +397,38 @@ export const BSCPage: React.FC = () => {
             </Card>
           </div>
         </main>
+        
+        {/* Warning Modal - outside grid layout */}
+        <Modal
+          isOpen={showWarningModal}
+          onClose={() => setShowWarningModal(false)}
+          title="⚠️ Privacy Warning"
+          size="md"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div>
+              <p style={{ color: 'var(--text-primary)', marginBottom: '1rem' }}>
+                WalletConnect should be used as a last resort. It is run by Reown, which has:
+              </p>
+              <ul style={{ color: 'var(--text-secondary)', marginLeft: '1.5rem', marginBottom: '1rem' }}>
+                <li>Poor respect for user privacy</li>
+                <li>Is not open source</li>
+              </ul>
+              <p style={{ color: 'var(--text-secondary)' }}>
+                We recommend using browser extension wallets (MetaMask for BSC) whenever possible.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+              <Button onClick={() => setShowWarningModal(false)} variant="secondary">
+                Cancel
+              </Button>
+              <Button onClick={handleWalletConnectConfirm} variant="primary">
+                Continue with WalletConnect
+              </Button>
+            </div>
+          </div>
+        </Modal>
+        
         <Footer />
       </div>
     );
@@ -362,6 +458,7 @@ export const BSCPage: React.FC = () => {
         walletAddress={address || undefined} 
         onDisconnect={disconnect}
         walletStatus={isLoadingOwner ? undefined : (isOwner ? 'owner' : 'public')}
+        onConnect={handleMetamaskConnect}
       />
       
       <main style={{ flex: 1, padding: '2rem', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>

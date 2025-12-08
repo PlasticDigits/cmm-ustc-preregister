@@ -1,7 +1,11 @@
 // Terra Classic wallet integration using cosmes
 import {
   ConnectedWallet,
+  CosmostationController,
+  GalaxyStationController,
   KeplrController,
+  LeapController,
+  LUNCDashController,
   StationController,
   WalletController,
   WalletName,
@@ -10,7 +14,7 @@ import {
 import { TERRA_RPC_URL } from '@/utils/constants';
 
 const TERRA_CLASSIC_CHAIN_ID = 'columbus-5';
-const WC_PROJECT_ID = '2b7d5a2da89dd74fed821d184acabf95'; // Public WalletConnect project ID
+const WC_PROJECT_ID = '2ce7811b869be33ffad28cff05c93c15'; // Public WalletConnect project ID
 
 // Gas price for Terra Classic (28.325 uluna per gas unit)
 const GAS_PRICE = {
@@ -21,10 +25,18 @@ const GAS_PRICE = {
 // Create wallet controllers
 const STATION_CONTROLLER = new StationController();
 const KEPLR_CONTROLLER = new KeplrController(WC_PROJECT_ID);
+const LUNCDASH_CONTROLLER = new LUNCDashController();
+const GALAXY_CONTROLLER = new GalaxyStationController(WC_PROJECT_ID);
+const LEAP_CONTROLLER = new LeapController(WC_PROJECT_ID);
+const COSMOSTATION_CONTROLLER = new CosmostationController(WC_PROJECT_ID);
 
 const CONTROLLERS: Partial<Record<WalletName, WalletController>> = {
   [WalletName.STATION]: STATION_CONTROLLER,
   [WalletName.KEPLR]: KEPLR_CONTROLLER,
+  [WalletName.LUNCDASH]: LUNCDASH_CONTROLLER,
+  [WalletName.GALAXYSTATION]: GALAXY_CONTROLLER,
+  [WalletName.LEAP]: LEAP_CONTROLLER,
+  [WalletName.COSMOSTATION]: COSMOSTATION_CONTROLLER,
 };
 
 // Store connected wallets
@@ -59,12 +71,12 @@ export function isKeplrInstalled(): boolean {
  * Connect to Terra Classic wallet using cosmes
  * @param walletName - The wallet to connect (station or keplr)
  * @param walletType - Extension or WalletConnect
- * @returns Connected wallet address and type
+ * @returns Connected wallet address, wallet name, and connection type
  */
 export async function connectTerraWallet(
   walletName: WalletName = WalletName.STATION,
   walletType: WalletType = WalletType.EXTENSION
-): Promise<{ address: string; walletType: 'station' | 'keplr' }> {
+): Promise<{ address: string; walletType: 'station' | 'keplr' | 'luncdash' | 'galaxy' | 'leap' | 'cosmostation'; connectionType: WalletType }> {
   const controller = CONTROLLERS[walletName];
   if (!controller) {
     throw new Error(`Unsupported wallet: ${walletName}`);
@@ -86,9 +98,26 @@ export async function connectTerraWallet(
 
     connectedWallets.set(TERRA_CLASSIC_CHAIN_ID, wallet);
 
+    // Map wallet name to wallet type string
+    let walletTypeStr: 'station' | 'keplr' | 'luncdash' | 'galaxy' | 'leap' | 'cosmostation';
+    if (walletName === WalletName.STATION) {
+      walletTypeStr = 'station';
+    } else if (walletName === WalletName.LUNCDASH) {
+      walletTypeStr = 'luncdash';
+    } else if (walletName === WalletName.GALAXYSTATION) {
+      walletTypeStr = 'galaxy';
+    } else if (walletName === WalletName.LEAP) {
+      walletTypeStr = 'leap';
+    } else if (walletName === WalletName.COSMOSTATION) {
+      walletTypeStr = 'cosmostation';
+    } else {
+      walletTypeStr = 'keplr';
+    }
+
     return {
       address: wallet.address,
-      walletType: walletName === WalletName.STATION ? 'station' : 'keplr',
+      walletType: walletTypeStr,
+      connectionType: walletType,
     };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -114,7 +143,23 @@ export async function connectTerraWallet(
       throw new Error('Connection rejected by user');
     }
     
-    throw new Error(`Failed to connect ${walletName === WalletName.STATION ? 'Station' : 'Keplr'} wallet: ${errorMessage}`);
+    // Get wallet display name
+    let walletDisplayName = 'wallet';
+    if (walletName === WalletName.STATION) {
+      walletDisplayName = 'Station';
+    } else if (walletName === WalletName.KEPLR) {
+      walletDisplayName = 'Keplr';
+    } else if (walletName === WalletName.LUNCDASH) {
+      walletDisplayName = 'LuncDash';
+    } else if (walletName === WalletName.GALAXYSTATION) {
+      walletDisplayName = 'Galaxy';
+    } else if (walletName === WalletName.LEAP) {
+      walletDisplayName = 'Leap';
+    } else if (walletName === WalletName.COSMOSTATION) {
+      walletDisplayName = 'Cosmostation';
+    }
+    
+    throw new Error(`Failed to connect ${walletDisplayName}: ${errorMessage}`);
   }
 }
 
