@@ -381,6 +381,65 @@ export function isTerraStationConnected(): boolean {
 }
 
 /**
+ * Sign and broadcast a transaction via TerraStation WalletConnect
+ * @param msgs - The messages to send
+ * @param memo - Optional memo
+ * @param fee - Fee object
+ */
+export async function signAndBroadcastTx(
+  msgs: unknown[],
+  memo: string = '',
+  fee: { amount: Array<{ denom: string; amount: string }>; gas: string; gas_limit?: string }
+): Promise<string> {
+  if (!wcInstance || !wcInstance.connected) {
+    throw new Error('TerraStation is not connected');
+  }
+
+  const id = Date.now();
+
+  // Try the standard Terra WalletConnect format with separate params
+  console.log('[TerraStation] Sending transaction with separate params format');
+  console.log('[TerraStation] msgs:', JSON.stringify(msgs, null, 2));
+  console.log('[TerraStation] fee:', JSON.stringify(fee, null, 2));
+
+  try {
+    const result = await wcInstance.sendCustomRequest({
+      id,
+      method: 'post',
+      params: [msgs, fee, memo],
+    });
+
+    console.log('[TerraStation] Transaction result:', result);
+
+    if (result && result.txhash) {
+      return result.txhash;
+    }
+
+    if (result && result.txHash) {
+      return result.txHash;
+    }
+
+    if (typeof result === 'string' && result.length === 64) {
+      return result;
+    }
+
+    console.error('[TerraStation] Unexpected result format:', result);
+    throw new Error('No transaction hash returned');
+  } catch (err: unknown) {
+    console.error('[TerraStation] Transaction error:', err);
+    if (err instanceof Error) {
+      try {
+        const parsed = JSON.parse(err.message);
+        throw new Error(parsed.message || err.message);
+      } catch {
+        throw new Error(err.message);
+      }
+    }
+    throw new Error('Unknown error during transaction');
+  }
+}
+
+/**
  * Restore session from storage if available
  */
 export async function restoreTerraStationSession(): Promise<{ address: string } | null> {

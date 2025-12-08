@@ -8,7 +8,7 @@ import { TERRA_RPC_URL } from '@/utils/constants';
 
 const LUNCDASH_BRIDGE = 'https://walletconnect.luncdash.com';
 const SESSION_STORAGE_KEY = 'luncdash.wcSession';
-const TERRA_CLASSIC_CHAIN_ID = 'columbus-5';
+export const TERRA_CLASSIC_CHAIN_ID = 'columbus-5';
 
 // Store the WalletConnect instance
 let wcInstance: WalletConnect | null = null;
@@ -420,7 +420,7 @@ export function isLuncDashConnected(): boolean {
 export async function signAndBroadcastTx(
   msgs: unknown[],
   memo: string = '',
-  fee: { amount: Array<{ denom: string; amount: string }>; gas: string }
+  fee: { amount: Array<{ denom: string; amount: string }>; gas: string; gas_limit?: string }
 ): Promise<string> {
   if (!wcInstance || !wcInstance.connected) {
     throw new Error('LuncDash is not connected');
@@ -428,38 +428,119 @@ export async function signAndBroadcastTx(
 
   const id = Date.now();
 
-  // Construct the transaction payload for LuncDash
-  const txPayload = {
-    chain_id: TERRA_CLASSIC_CHAIN_ID,
-    msgs: msgs,
-    fee: fee,
-    memo: memo,
+  // Normalize fee structure - ensure gas_limit is present if gas is provided
+  const normalizedFee = {
+    ...fee,
+    gas_limit: fee.gas_limit || fee.gas,
   };
 
-  try {
-    const result = await wcInstance.sendCustomRequest({
-      id,
-      method: 'post',
-      params: [txPayload],
-    });
+  console.log('[LuncDash] Sending transaction');
+  console.log('[LuncDash] msgs:', JSON.stringify(msgs, null, 2));
+  console.log('[LuncDash] fee:', JSON.stringify(normalizedFee, null, 2));
+  console.log('[LuncDash] memo:', memo);
 
-    if (result && result.txhash) {
-      return result.txhash;
-    }
+  // Try multiple method names and formats that LuncDash might support
+  // Start with 'post' as it's the most common for Terra wallets
+  const methods = ['post', 'terra_sign', 'terra_signTx'];
+  let lastError: Error | null = null;
+  
+  for (const method of methods) {
+    // Try format 1: [msgs, fee, memo] - standard Terra WalletConnect format
+    try {
+      console.log(`[LuncDash] Trying method: ${method} with format [msgs, fee, memo]`);
+      
+      const result = await wcInstance.sendCustomRequest({
+        id: id + methods.indexOf(method),
+        method,
+        params: [msgs, normalizedFee, memo],
+      });
 
-    throw new Error('No transaction hash returned');
-  } catch (err: unknown) {
-    if (err instanceof Error) {
-      // Error messages from LuncDash are JSON stringified
+      console.log(`[LuncDash] Transaction result for ${method}:`, result);
+
+      if (result && result.txhash) {
+        return result.txhash;
+      }
+
+      if (result && result.txHash) {
+        return result.txHash;
+      }
+
+      if (typeof result === 'string' && result.length === 64) {
+        return result;
+      }
+
+      // If we got a result but it's not a hash, log and continue
+      console.log(`[LuncDash] Got result but not a hash format, trying next method`);
+    } catch (format1Error: unknown) {
+      console.log(`[LuncDash] Format 1 failed for ${method}:`, format1Error);
+      lastError = format1Error instanceof Error ? format1Error : new Error(String(format1Error));
+      
+      // Try format 2: Single object with all transaction details
       try {
-        const parsed = JSON.parse(err.message);
-        throw new Error(parsed.message || err.message);
-      } catch {
-        throw new Error(err.message);
+        console.log(`[LuncDash] Trying method: ${method} with format [txObject]`);
+        
+        const result = await wcInstance.sendCustomRequest({
+          id: id + methods.indexOf(method) + 100,
+          method,
+          params: [{
+            msgs,
+            fee: normalizedFee,
+            memo,
+            chain_id: TERRA_CLASSIC_CHAIN_ID,
+          }],
+        });
+
+        console.log(`[LuncDash] Transaction result for ${method} (format 2):`, result);
+
+        if (result && result.txhash) {
+          return result.txhash;
+        }
+
+        if (result && result.txHash) {
+          return result.txHash;
+        }
+
+        if (typeof result === 'string' && result.length === 64) {
+          return result;
+        }
+      } catch (format2Error: unknown) {
+        console.log(`[LuncDash] Format 2 also failed for ${method}:`, format2Error);
+        lastError = format2Error instanceof Error ? format2Error : new Error(String(format2Error));
       }
     }
-    throw new Error('Unknown error during transaction');
   }
+
+  // If we get here, all methods failed
+  console.error('[LuncDash] All transaction methods failed');
+  
+  if (lastError) {
+    // Check if it's a user rejection
+    const errorMsg = lastError.message.toLowerCase();
+    if (
+      errorMsg.includes('user rejected') ||
+      errorMsg.includes('rejected') ||
+      errorMsg.includes('user denied') ||
+      errorMsg.includes('cancelled') ||
+      errorMsg.includes('canceled')
+    ) {
+      throw new Error('Transaction rejected by user');
+    }
+    
+    // Check for the specific LuncDash error
+    if (errorMsg.includes('not available') || errorMsg.includes('transaction is not available')) {
+      throw new Error('Transaction format may be incompatible with LuncDash. Please check the console for details.');
+    }
+    
+    // Try to parse JSON error messages
+    try {
+      const parsed = JSON.parse(lastError.message);
+      throw new Error(parsed.message || lastError.message);
+    } catch {
+      throw new Error(lastError.message || 'Unknown error during transaction');
+    }
+  }
+  
+  throw new Error('No transaction hash returned from any method');
 }
 
 /**

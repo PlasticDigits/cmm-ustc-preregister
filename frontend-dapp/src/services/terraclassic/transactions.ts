@@ -3,6 +3,16 @@ import type { UnsignedTx } from '@goblinhunt/cosmes/wallet';
 import { CosmosTxV1beta1Fee as Fee } from '@goblinhunt/cosmes/protobufs';
 import { TERRA_CONTRACT_ADDRESS } from '@/utils/constants';
 import { getConnectedWallet } from './wallet';
+import {
+  isLuncDashConnected,
+  getLuncDashAddress,
+  signAndBroadcastTx as luncDashSignAndBroadcast,
+} from './luncdash-walletconnect';
+import {
+  isTerraStationConnected,
+  getTerraStationAddress,
+  signAndBroadcastTx as terraStationSignAndBroadcast,
+} from './terrastation-walletconnect';
 
 const USTC_DENOM = 'uusd'; // microUSTC
 
@@ -49,6 +59,73 @@ function getGasLimitForTx(executeMsg: Record<string, unknown>): number {
 }
 
 /**
+ * Execute a Terra Classic contract transaction via WalletConnect (LuncDash or TerraStation)
+ * @param walletAddress - The wallet address executing the transaction
+ * @param executeMsg - The execute message for the contract
+ * @param coins - Coins to send with the transaction (for deposit)
+ * @returns Transaction hash
+ */
+async function executeViaWalletConnect(
+  walletAddress: string,
+  executeMsg: Record<string, unknown>,
+  signAndBroadcast: typeof luncDashSignAndBroadcast,
+  coins?: Array<{ denom: string; amount: string }>
+): Promise<string> {
+  // Use cosmes MsgExecuteContract and convert to Amino format
+  // This matches the format used by browser wallets via cosmes
+  const cosmesMsg = new MsgExecuteContract({
+    sender: walletAddress,
+    contract: TERRA_CONTRACT_ADDRESS,
+    msg: executeMsg,
+    funds: coins && coins.length > 0 ? coins : [],
+  });
+
+  // Get Amino representation - this is exactly how cosmes formats it
+  let aminoMsg = cosmesMsg.toAmino();
+
+  // Ensure the message has a type field (required by some wallets like LuncDash)
+  // Terra Classic uses "wasm/MsgExecuteContract" for contract execution messages
+  if (!aminoMsg.type || aminoMsg.type === '') {
+    aminoMsg = {
+      ...aminoMsg,
+      type: 'wasm/MsgExecuteContract',
+    };
+  }
+
+  // Validate message structure - ensure it has the required fields
+  if (!aminoMsg.value) {
+    console.error('[Transaction] Amino message missing value field:', aminoMsg);
+    throw new Error('Invalid message structure: missing value field');
+  }
+
+  // Ensure value has required fields for MsgExecuteContract
+  if (!aminoMsg.value.sender || !aminoMsg.value.contract) {
+    console.error('[Transaction] Amino message missing required fields:', aminoMsg);
+    throw new Error('Invalid message structure: missing sender or contract');
+  }
+
+  console.log('[Transaction] WalletConnect Amino message (from cosmes):', JSON.stringify(aminoMsg, null, 2));
+  console.log('[Transaction] Message type:', aminoMsg.type);
+  console.log('[Transaction] Contract address:', aminoMsg.value.contract);
+  console.log('[Transaction] Sender address:', aminoMsg.value.sender);
+  console.log('[Transaction] Funds:', (aminoMsg.value as { funds?: Array<{ denom: string; amount: string }> }).funds || []);
+
+  // Calculate gas and fee
+  const gasLimit = getGasLimitForTx(executeMsg);
+  const feeAmount = Math.ceil(parseFloat(GAS_PRICE_ULUNA) * gasLimit);
+
+  // Some wallets expect gas_limit instead of gas, so provide both formats
+  const fee = {
+    amount: [{ denom: 'uluna', amount: feeAmount.toString() }],
+    gas: gasLimit.toString(),
+    gas_limit: gasLimit.toString(), // Some wallets expect this field name
+  };
+
+  // Sign and broadcast via WalletConnect
+  return await signAndBroadcast([aminoMsg], '', fee);
+}
+
+/**
  * Execute a Terra Classic contract transaction using cosmes
  * @param walletAddress - The wallet address executing the transaction
  * @param executeMsg - The execute message for the contract
@@ -60,6 +137,45 @@ export async function executeTerraContract(
   executeMsg: Record<string, unknown>,
   coins?: Array<{ denom: string; amount: string }>
 ): Promise<string> {
+  // Check for LuncDash WalletConnect connection first
+  if (isLuncDashConnected()) {
+    const luncDashAddress = getLuncDashAddress();
+    if (luncDashAddress && luncDashAddress === walletAddress) {
+      console.log('[Transaction] Using LuncDash WalletConnect for signing');
+      try {
+        return await executeViaWalletConnect(
+          walletAddress,
+          executeMsg,
+          luncDashSignAndBroadcast,
+          coins
+        );
+      } catch (error: unknown) {
+        console.error('LuncDash transaction error:', error);
+        throw handleTransactionError(error);
+      }
+    }
+  }
+
+  // Check for TerraStation WalletConnect connection
+  if (isTerraStationConnected()) {
+    const terraStationAddress = getTerraStationAddress();
+    if (terraStationAddress && terraStationAddress === walletAddress) {
+      console.log('[Transaction] Using TerraStation WalletConnect for signing');
+      try {
+        return await executeViaWalletConnect(
+          walletAddress,
+          executeMsg,
+          terraStationSignAndBroadcast,
+          coins
+        );
+      } catch (error: unknown) {
+        console.error('TerraStation transaction error:', error);
+        throw handleTransactionError(error);
+      }
+    }
+  }
+
+  // Fall back to cosmes wallet (extension wallets like Keplr, Station extension)
   const wallet = getConnectedWallet();
   if (!wallet) {
     throw new Error('Wallet not connected. Please connect your wallet first.');
@@ -106,39 +222,44 @@ export async function executeTerraContract(
 
     return txHash;
   } catch (error: unknown) {
-    // Enhanced error handling with detailed messages
     console.error('Terra Classic transaction error:', error);
+    throw handleTransactionError(error);
+  }
+}
 
-    if (error instanceof Error) {
-      const errorMessage = error.message;
+/**
+ * Handle transaction errors with user-friendly messages
+ */
+function handleTransactionError(error: unknown): Error {
+  if (error instanceof Error) {
+    const errorMessage = error.message;
 
-      // User rejection errors
-      if (
-        errorMessage.includes('User rejected') ||
-        errorMessage.includes('rejected') ||
-        errorMessage.includes('User denied') ||
-        errorMessage.includes('user rejected')
-      ) {
-        throw new Error('Transaction rejected by user');
-      }
-
-      // Network/connection errors
-      if (
-        errorMessage.includes('Failed to fetch') ||
-        errorMessage.includes('NetworkError') ||
-        errorMessage.includes('network')
-      ) {
-        throw new Error(
-          `Network error: ${errorMessage}. Please check your internet connection and try again.`
-        );
-      }
-
-      // Include full error message for debugging
-      throw new Error(`Transaction failed: ${errorMessage}`);
+    // User rejection errors
+    if (
+      errorMessage.includes('User rejected') ||
+      errorMessage.includes('rejected') ||
+      errorMessage.includes('User denied') ||
+      errorMessage.includes('user rejected')
+    ) {
+      return new Error('Transaction rejected by user');
     }
 
-    throw new Error(`Transaction failed: ${String(error)}`);
+    // Network/connection errors
+    if (
+      errorMessage.includes('Failed to fetch') ||
+      errorMessage.includes('NetworkError') ||
+      errorMessage.includes('network')
+    ) {
+      return new Error(
+        `Network error: ${errorMessage}. Please check your internet connection and try again.`
+      );
+    }
+
+    // Include full error message for debugging
+    return new Error(`Transaction failed: ${errorMessage}`);
   }
+
+  return new Error(`Transaction failed: ${String(error)}`);
 }
 
 /**
