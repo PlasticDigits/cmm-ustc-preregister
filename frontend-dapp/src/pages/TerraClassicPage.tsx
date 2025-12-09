@@ -10,7 +10,6 @@ import { useWithdrawalInfo } from '@/hooks/useWithdrawalInfo';
 import { useTerraClassicContract } from '@/hooks/useTerraClassicContract';
 import { useTerraClassicWallet } from '@/hooks/useTerraClassicWallet';
 import { getUSTCBalance } from '@/services/terraclassic/balance';
-import { testTransactionFormat, isLuncDashConnected, getTestCount, getTestName } from '@/services/terraclassic/luncdash-walletconnect';
 import { useToast } from '@/contexts/ToastContext';
 import { validateAmount } from '@/utils/validation';
 import { formatTimeRemaining, formatAddress } from '@/utils/format';
@@ -72,9 +71,6 @@ export const TerraClassicPage: React.FC = () => {
   // Owner-only state
   const [withdrawalDestination, setWithdrawalDestinationInput] = useState('');
   const [unlockDays, setUnlockDays] = useState('7');
-  
-  // Test transaction format state
-  const [testingIndex, setTestingIndex] = useState<number | null>(null);
   
   // Handle LuncDash WalletConnect connection
   const handleLuncDashClick = () => {
@@ -352,26 +348,6 @@ export const TerraClassicPage: React.FC = () => {
     }
   };
 
-  // Test transaction format handler
-  const handleTestFormat = async (testIndex: number) => {
-    if (!isLuncDashConnected() || !address) {
-      showToast('LuncDash must be connected to test formats', 'error');
-      return;
-    }
-
-    setTestingIndex(testIndex);
-    try {
-      const testName = getTestName(testIndex);
-      showToast(`Testing #${testIndex}: ${testName}...`, 'info');
-      const txHash = await testTransactionFormat(testIndex, address);
-      showToast(`Test #${testIndex} SUCCESS! TxHash: ${txHash.slice(0, 10)}...`, 'success');
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      showToast(`Test #${testIndex} FAILED: ${errorMessage}`, 'error');
-    } finally {
-      setTestingIndex(null);
-    }
-  };
 
   // Handle connect from header button (no parameters)
   const handleHeaderConnect = () => {
@@ -915,33 +891,6 @@ export const TerraClassicPage: React.FC = () => {
               </Button>
             </div>
           </Card>
-
-          {/* Test Transaction Format Card - Only show when LuncDash is connected */}
-          {isLuncDashConnected() && (
-            <Card>
-              <h3 style={{ color: 'var(--gold-primary)', marginBottom: '1rem' }}>🔧 Test Transaction Formats</h3>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1rem' }}>
-                Test different WalletConnect methods &amp; formats. Each will attempt a 50 USTC deposit.
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {Array.from({ length: getTestCount() }, (_, i) => (
-                  <Button 
-                    key={i}
-                    onClick={() => handleTestFormat(i)} 
-                    loading={testingIndex === i}
-                    disabled={testingIndex !== null && testingIndex !== i}
-                    variant="secondary"
-                    style={{ width: '100%', fontSize: '0.85rem', padding: '0.5rem 1rem' }}
-                  >
-                    #{i}: {getTestName(i)}
-                  </Button>
-                ))}
-              </div>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '1rem' }}>
-                Check browser console for detailed logs.
-              </p>
-            </Card>
-          )}
 
           {/* Owner-only Cards */}
           {isOwner && (

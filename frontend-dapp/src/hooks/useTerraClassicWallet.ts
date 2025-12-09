@@ -6,18 +6,6 @@ import {
   isKeplrInstalled,
   isStationInstalled,
 } from '@/services/terraclassic/wallet';
-import {
-  connectLuncDash,
-  disconnectLuncDash,
-  restoreLuncDashSession,
-  isLuncDashConnected,
-} from '@/services/terraclassic/luncdash-walletconnect';
-import {
-  connectTerraStation,
-  disconnectTerraStation,
-  restoreTerraStationSession,
-  isTerraStationConnected,
-} from '@/services/terraclassic/terrastation-walletconnect';
 import { WalletName, WalletType } from '@goblinhunt/cosmes/wallet';
 
 export type TerraWalletType = 'station' | 'keplr' | 'luncdash' | 'galaxy' | 'leap' | 'cosmostation' | null;
@@ -38,27 +26,19 @@ export function useTerraClassicWallet() {
       setConnectingMethod({ walletName, walletType: walletTypeParam });
       setError(null);
       try {
-        // Use custom LuncDash implementation for WalletConnect (avoids pub key requirement)
-        if (walletName === WalletName.LUNCDASH) {
-          const { address: addr } = await connectLuncDash();
-          setAddress(addr);
-          setWalletType('luncdash');
-          setConnectionType(WalletType.WALLETCONNECT);
-        } else if (walletName === WalletName.STATION && walletTypeParam === WalletType.WALLETCONNECT) {
-          // Use custom TerraStation WalletConnect implementation
-          const { address: addr } = await connectTerraStation();
-          setAddress(addr);
-          setWalletType('station');
-          setConnectionType(WalletType.WALLETCONNECT);
-        } else {
-          const { address: addr, walletType: type, connectionType: connType } = await connectTerraWallet(
-            walletName,
-            walletTypeParam
-          );
-          setAddress(addr);
-          setWalletType(type);
-          setConnectionType(connType);
-        }
+        // Use cosmes controllers for all wallets
+        // LUNC Dash always uses WalletConnect
+        const effectiveWalletType = walletName === WalletName.LUNCDASH 
+          ? WalletType.WALLETCONNECT 
+          : walletTypeParam;
+        
+        const { address: addr, walletType: type, connectionType: connType } = await connectTerraWallet(
+          walletName,
+          effectiveWalletType
+        );
+        setAddress(addr);
+        setWalletType(type);
+        setConnectionType(connType);
       } catch (err: unknown) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to connect wallet';
         setError(errorMessage);
@@ -71,21 +51,13 @@ export function useTerraClassicWallet() {
   );
 
   const disconnect = useCallback(async () => {
-    // Disconnect from LuncDash if connected via WalletConnect
-    if (walletType === 'luncdash' || isLuncDashConnected()) {
-      await disconnectLuncDash();
-    }
-    // Disconnect from TerraStation if connected via WalletConnect
-    if (isTerraStationConnected()) {
-      await disconnectTerraStation();
-    }
-    // Also disconnect from cosmes wallets
+    // Disconnect from all cosmes wallets (Station, LUNC Dash, Keplr, etc.)
     await disconnectTerraWallet();
     
     setAddress(null);
     setWalletType(null);
     setConnectionType(null);
-  }, [walletType]);
+  }, []);
 
   // Check for wallet availability
   useEffect(() => {
@@ -105,33 +77,7 @@ export function useTerraClassicWallet() {
   // Auto-connect on mount if wallet is already connected
   useEffect(() => {
     const tryRestore = async () => {
-      // First try to restore LuncDash session
-      try {
-        const luncDashSession = await restoreLuncDashSession();
-        if (luncDashSession) {
-          setAddress(luncDashSession.address);
-          setWalletType('luncdash');
-          setConnectionType(WalletType.WALLETCONNECT);
-          return; // Session restored, no need to check other wallets
-        }
-      } catch {
-        // Ignore errors on LuncDash restore
-      }
-
-      // Try to restore TerraStation session
-      try {
-        const terraStationSession = await restoreTerraStationSession();
-        if (terraStationSession) {
-          setAddress(terraStationSession.address);
-          setWalletType('station');
-          setConnectionType(WalletType.WALLETCONNECT);
-          return; // Session restored, no need to check other wallets
-        }
-      } catch {
-        // Ignore errors on TerraStation restore
-      }
-
-      // Then try cosmes wallets
+      // Try to restore cosmes wallet connections
       try {
         const addr = await getCurrentTerraAddress();
         if (addr) {
