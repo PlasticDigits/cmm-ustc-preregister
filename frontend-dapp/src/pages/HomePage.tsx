@@ -89,7 +89,7 @@ const CountdownSeparator: React.FC<{ accentColor: string }> = ({ accentColor }) 
       fontWeight: 700,
       color: accentColor,
       opacity: 0.6,
-      marginTop: '-0.5rem',
+      marginTop: '1rem',
     }}
     animate={{ opacity: [0.3, 0.8, 0.3] }}
     transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
