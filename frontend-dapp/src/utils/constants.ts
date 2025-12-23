@@ -31,3 +31,9 @@ export const TERRA_CONTRACT_CONFIG = {
   rpcUrl: TERRA_RPC_URL,
   lcdUrl: TERRA_LCD_URL,
 };
+
+// Block explorer URLs
+export const BSC_EXPLORER_URL = BSC_CHAIN_ID === 56 
+  ? 'https://bscscan.com' 
+  : 'https://testnet.bscscan.com';
+export const TERRA_EXPLORER_URL = 'https://finder.terraclassic.community/mainnet';

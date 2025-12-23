@@ -3,6 +3,7 @@ import { useBSCWallet } from '@/hooks/useBSCWallet';
 import { useBSCWalletConnect } from '@/hooks/useBSCWalletConnect';
 import { useBSCContract } from '@/hooks/useBSCContract';
 import { useWithdrawalInfo } from '@/hooks/useWithdrawalInfo';
+import { useLaunchCountdown } from '@/hooks/useLaunchCountdown';
 import { Header } from '@/components/common/Header';
 import { Footer } from '@/components/common/Footer';
 import { Card } from '@/components/common/Card';
@@ -29,6 +30,7 @@ export const BSCPage: React.FC = () => {
   
   const { contract, userDeposit, userDepositRaw, totalDeposits, userCount, deposit, withdraw, isDepositing, isWithdrawing, isOwner, isLoadingOwner, setWithdrawalDestination, isSettingWithdrawal, ownerWithdraw, isOwnerWithdrawing } = useBSCContract(signer);
   const { withdrawalInfo, timeRemaining, isUnlocked, isLoading: isLoadingWithdrawal } = useWithdrawalInfo('bsc', contract);
+  const { isPreregistrationClosed } = useLaunchCountdown();
   const { showToast } = useToast();
   
   const [depositAmount, setDepositAmount] = useState('');
@@ -273,7 +275,9 @@ export const BSCPage: React.FC = () => {
     }
 
     try {
-      const unlockTimestamp = Math.floor(Date.now() / 1000) + (days * 24 * 60 * 60);
+      // Add 5 minute buffer to account for transaction processing time and block time differences
+      const BUFFER_SECONDS = 5 * 60; // 5 minutes
+      const unlockTimestamp = Math.floor(Date.now() / 1000) + (days * 24 * 60 * 60) + BUFFER_SECONDS;
       showToast('Setting withdrawal destination...', 'info');
       await setWithdrawalDestination({ destination: withdrawalDestination, unlockTimestamp });
       setWithdrawalDestinationInput('');
@@ -521,6 +525,11 @@ export const BSCPage: React.FC = () => {
           <Card>
             <h3 style={{ color: 'var(--gold-primary)', marginBottom: '1rem' }}>Deposit</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {isPreregistrationClosed && (
+                <p style={{ color: 'var(--warning)', fontSize: '0.9rem', fontWeight: 600 }}>
+                  ⏰ Preregistration is closed. Deposits are no longer accepted.
+                </p>
+              )}
               <Input
                 label="Amount (USTC)"
                 type="text"
@@ -529,7 +538,8 @@ export const BSCPage: React.FC = () => {
                 placeholder="0.0"
                 showMaxButton={true}
                 onMaxClick={handleMaxDeposit}
-                maxButtonDisabled={parseFloat(tokenBalance) === 0}
+                maxButtonDisabled={parseFloat(tokenBalance) === 0 || isPreregistrationClosed}
+                disabled={isPreregistrationClosed}
               />
               {loadingBalance ? (
                 <LoadingSpinner size="sm" />
@@ -541,7 +551,7 @@ export const BSCPage: React.FC = () => {
               <Button 
                 onClick={needsApproval() ? handleApprove : handleDeposit} 
                 loading={isApproving || isDepositing} 
-                disabled={!depositAmount}
+                disabled={!depositAmount || isPreregistrationClosed}
               >
                 {needsApproval() ? 'Approve' : 'Deposit'}
               </Button>
@@ -552,6 +562,11 @@ export const BSCPage: React.FC = () => {
           <Card>
             <h3 style={{ color: 'var(--gold-primary)', marginBottom: '1rem' }}>Withdraw</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {isPreregistrationClosed && (
+                <p style={{ color: 'var(--warning)', fontSize: '0.9rem', fontWeight: 600 }}>
+                  ⏰ Preregistration is closed. Withdrawals are no longer accepted.
+                </p>
+              )}
               <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
                 Your Deposit: {userDeposit} USTC
               </p>
@@ -563,9 +578,10 @@ export const BSCPage: React.FC = () => {
                 placeholder="0.0"
                 showMaxButton={true}
                 onMaxClick={handleMaxWithdraw}
-                maxButtonDisabled={parseFloat(userDeposit) === 0}
+                maxButtonDisabled={parseFloat(userDeposit) === 0 || isPreregistrationClosed}
+                disabled={isPreregistrationClosed}
               />
-              <Button onClick={handleWithdraw} loading={isWithdrawing} disabled={!withdrawAmount}>
+              <Button onClick={handleWithdraw} loading={isWithdrawing} disabled={!withdrawAmount || isPreregistrationClosed}>
                 Withdraw
               </Button>
             </div>

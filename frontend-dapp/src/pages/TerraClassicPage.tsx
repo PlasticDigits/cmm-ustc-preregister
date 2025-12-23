@@ -7,6 +7,7 @@ import { Input } from '@/components/common/Input';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { Modal } from '@/components/common/Modal';
 import { useWithdrawalInfo } from '@/hooks/useWithdrawalInfo';
+import { useLaunchCountdown } from '@/hooks/useLaunchCountdown';
 import { useTerraClassicContract } from '@/hooks/useTerraClassicContract';
 import { useTerraClassicWallet } from '@/hooks/useTerraClassicWallet';
 import { getUSTCBalance } from '@/services/terraclassic/balance';
@@ -50,6 +51,7 @@ export const TerraClassicPage: React.FC = () => {
   const { address, isConnected, isConnecting, isConnectingStation, isConnectingKeplr, isConnectingWalletConnect, connect, disconnect, error: walletError, isStationAvailable, isKeplrAvailable } = useTerraClassicWallet();
   const { contract, totalDeposits, userCount, userDeposit, isLoading: isLoadingStats, deposit, withdraw, isDepositing, isWithdrawing, isOwner, isLoadingOwner, setWithdrawalDestination, isSettingWithdrawal, ownerWithdraw, isOwnerWithdrawing } = useTerraClassicContract(address);
   const { withdrawalInfo, timeRemaining, isUnlocked, isLoading: isLoadingWithdrawal } = useWithdrawalInfo('terraclassic', contract);
+  const { isPreregistrationClosed } = useLaunchCountdown();
   const { showToast } = useToast();
   
   const [depositAmount, setDepositAmount] = useState('');
@@ -314,7 +316,9 @@ export const TerraClassicPage: React.FC = () => {
     }
 
     try {
-      const unlockTimestamp = Math.floor(Date.now() / 1000) + (days * 24 * 60 * 60);
+      // Add 5 minute buffer to account for transaction processing time and block time differences
+      const BUFFER_SECONDS = 5 * 60; // 5 minutes
+      const unlockTimestamp = Math.floor(Date.now() / 1000) + (days * 24 * 60 * 60) + BUFFER_SECONDS;
       showToast('Setting withdrawal destination...', 'info');
       await setWithdrawalDestination({ destination: withdrawalDestination, unlockTimestamp });
       setWithdrawalDestinationInput('');
@@ -846,6 +850,11 @@ export const TerraClassicPage: React.FC = () => {
           <Card>
             <h3 style={{ color: 'var(--gold-primary)', marginBottom: '1rem' }}>Deposit</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {isPreregistrationClosed && (
+                <p style={{ color: 'var(--warning)', fontSize: '0.9rem', fontWeight: 600 }}>
+                  ⏰ Preregistration is closed. Deposits are no longer accepted.
+                </p>
+              )}
               <Input
                 label="Amount (USTC)"
                 type="text"
@@ -854,7 +863,8 @@ export const TerraClassicPage: React.FC = () => {
                 placeholder="0.0"
                 showMaxButton={true}
                 onMaxClick={handleMaxDeposit}
-                maxButtonDisabled={parseFloat(tokenBalance) === 0}
+                maxButtonDisabled={parseFloat(tokenBalance) === 0 || isPreregistrationClosed}
+                disabled={isPreregistrationClosed}
               />
               {loadingBalance ? (
                 <LoadingSpinner size="sm" />
@@ -863,7 +873,7 @@ export const TerraClassicPage: React.FC = () => {
                   Balance: {tokenBalance} USTC
                 </p>
               )}
-              <Button onClick={handleDeposit} loading={isDepositing} disabled={!depositAmount}>
+              <Button onClick={handleDeposit} loading={isDepositing} disabled={!depositAmount || isPreregistrationClosed}>
                 Deposit
               </Button>
             </div>
@@ -873,6 +883,11 @@ export const TerraClassicPage: React.FC = () => {
           <Card>
             <h3 style={{ color: 'var(--gold-primary)', marginBottom: '1rem' }}>Withdraw</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {isPreregistrationClosed && (
+                <p style={{ color: 'var(--warning)', fontSize: '0.9rem', fontWeight: 600 }}>
+                  ⏰ Preregistration is closed. Withdrawals are no longer accepted.
+                </p>
+              )}
               <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
                 Your Deposit: {userDeposit} USTC
               </p>
@@ -884,9 +899,10 @@ export const TerraClassicPage: React.FC = () => {
                 placeholder="0.0"
                 showMaxButton={true}
                 onMaxClick={handleMaxWithdraw}
-                maxButtonDisabled={parseFloat(userDeposit) === 0}
+                maxButtonDisabled={parseFloat(userDeposit) === 0 || isPreregistrationClosed}
+                disabled={isPreregistrationClosed}
               />
-              <Button onClick={handleWithdraw} loading={isWithdrawing} disabled={!withdrawAmount}>
+              <Button onClick={handleWithdraw} loading={isWithdrawing} disabled={!withdrawAmount || isPreregistrationClosed}>
                 Withdraw
               </Button>
             </div>
