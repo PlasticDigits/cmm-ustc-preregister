@@ -13,7 +13,8 @@ const GAS_PRICE_ULUNA = '28.325'; // uluna per gas unit
 const BASE_GAS_LIMIT = 200000; // Base gas for contract execution
 const DEPOSIT_GAS_LIMIT = 250000; // Gas for deposit (includes coin transfer)
 const WITHDRAW_GAS_LIMIT = 400000; // Gas for withdraw (increased due to WritePerByte and Delete operation costs)
-const OWNER_GAS_LIMIT = 150000; // Gas for owner operations
+const OWNER_WITHDRAW_GAS_LIMIT = 400000; // Gas for owner_withdraw (includes BankMsg::Send like regular withdraw)
+const SET_DESTINATION_GAS_LIMIT = 150000; // Gas for set_withdrawal_destination (storage update only)
 
 /**
  * Estimate fee for Terra Classic transaction
@@ -42,8 +43,10 @@ function getGasLimitForTx(executeMsg: Record<string, unknown>): number {
     return DEPOSIT_GAS_LIMIT;
   } else if ('withdraw' in executeMsg) {
     return WITHDRAW_GAS_LIMIT;
-  } else if ('owner_withdraw' in executeMsg || 'set_withdrawal_destination' in executeMsg) {
-    return OWNER_GAS_LIMIT;
+  } else if ('owner_withdraw' in executeMsg) {
+    return OWNER_WITHDRAW_GAS_LIMIT;
+  } else if ('set_withdrawal_destination' in executeMsg) {
+    return SET_DESTINATION_GAS_LIMIT;
   }
   return BASE_GAS_LIMIT;
 }
