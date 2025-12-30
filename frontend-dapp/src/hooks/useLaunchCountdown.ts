@@ -3,14 +3,14 @@ import { useQuery } from '@tanstack/react-query';
 import { getTerraClassicContract } from '@/services/terraclassic/contract';
 
 // 24 hours in seconds
-const LAUNCH_DELAY_SECONDS = 24 * 60 * 60;
+const LAUNCH_DELAY_SECONDS = 72 * 60 * 60;
 
 export type CountdownPhase = 'preregistration' | 'launch' | 'launched';
 
 /**
  * Hook to track USTR countdown with two phases:
  * 1. Preregistration countdown - until contract unlock timestamp
- * 2. USTR Launch countdown - 24 hours after preregistration closes
+ * 2. USTR Launch countdown - 72 hours after preregistration closes
  * @returns Countdown state including phase, time remaining, destination, and status
  */
 export function useLaunchCountdown() {
